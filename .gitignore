@@ -1,0 +1,29 @@
+# Build outputs
+Debug/
+Release/
+x64/
+*.obj
+*.pch
+*.pdb
+*.ilk
+*.lib
+*.exp
+*.suo
+*.user
+*.sdf
+*.opensdf
+*.ipch
+*.VC.db
+*.aps
+
+# IDE
+.vs/
+*.ncb
+*.opt
+
+# DLLs (proprietary)
+ClevoEcInfo.dll
+NVGPU_DLL.dll
+
+# Config (user-specific)
+FanControlPro.cfg
