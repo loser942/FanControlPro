@@ -1,4 +1,5 @@
 # FanControl Pro
+项目基于：https://github.com/xl-Synapse/MyFanControl.git 修改
 
 **蓝天 (Clevo) 模具笔记本智能风扇控制工具**
 
