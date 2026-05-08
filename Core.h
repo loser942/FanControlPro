@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <memory>
+#include <synchapi.h>
 
 // ── 编译期常量（替代 #define）──
 constexpr int TEMP_LEVELS          = 10;   // 温度档位
@@ -54,7 +55,6 @@ typedef int(__stdcall In_2_Out_n_Func)(int, int);
 typedef PCWSTR(__stdcall In_0_Out_s_Func)(void);
 
 // ── RAII DLL 句柄 ──
-// 自动管理 LoadLibrary/FreeLibrary 生命周期，防止泄漏
 class DllHandle
 {
 public:
@@ -96,21 +96,20 @@ public:
     int m_nMemoryRangeMax;
     int m_nMemoryRangeMin;
 
-    int m_nStandardFrequency; // 默认频率
-    int m_nMaxFrequency;      // 最大频率
+    int m_nStandardFrequency;
+    int m_nMaxFrequency;
 
     int m_nGraphicsClock;
     int m_nMemoryClock;
-    int m_nUsage; // 使用率%
+    int m_nUsage;
 
 public:
-    BOOL Update(); // 更新 GPU 频率和使用率
-    BOOL LockFrequency(int frequency = 0); // 锁定频率
+    BOOL Update();
+    BOOL LockFrequency(int frequency = 0);
 
 protected:
     DllHandle m_hGPUdll;
     int m_nLockClock;
-    // 接口函数指针
     In_0_Out_n_Func *m_pfnInitGPU_API;
     In_1_Out_n_Func *m_pfnSet_GPU_Number;
     In_0_Out_n_Func *m_pfnGet_GPU_Base_Clock;
@@ -143,32 +142,28 @@ public:
     CConfig();
     
 public:
-    // 风扇曲线配置 [2 个风扇][10 个温度档位]
     int DutyList[2][TEMP_LEVELS];
-    int TransitionTemp;      // 过渡温度（迟滞）
-    int UpdateInterval;      // 更新间隔（秒）
-    BOOL Linear;             // 线性模式
-    BOOL TakeOver;           // 接管控制
-    int ForceTemp;           // 强冷触发温度
-    int MaxDutyLimit;        // 最大转速限制（默认 85%）
+    int TransitionTemp;
+    int UpdateInterval;
+    BOOL Linear;
+    BOOL TakeOver;
+    int ForceTemp;
+    int MaxDutyLimit;
     
-    // GPU 控制
     BOOL LockGPUFrequency;
     int GPUFrequency;
     
-    // 新增：模式配置
-    int ControlMode;         // 0=自动，1=手动，2=强冷
-    int ManualDuty[2];       // 手动模式转速设置 [CPU, GPU]
+    int ControlMode;
+    int ManualDuty[2];
     
-    // 配置文件路径（固定数组避免二进制序列化崩溃）
     char ConfigPath[MAX_PATH];
     
 public:
-    void LoadDefault();      // 加载默认配置
-    void LoadConfig();       // 读取配置
-    void SaveConfig();       // 保存配置
-    void ExportConfig(PCSTR path) const; // 导出配置
-    void ImportConfig(PCSTR path);       // 导入配置
+    void LoadDefault();
+    void LoadConfig();
+    void SaveConfig();
+    void ExportConfig(PCSTR path) const;
+    void ImportConfig(PCSTR path);
 };
 
 // 核心控制类
@@ -179,7 +174,6 @@ public:
     ~CCore();
     
 protected:
-    // EC 接口函数指针
     InitIo          *   m_pfnInitIo;
     SetFanDuty      *   m_pfnSetFanDuty;
     SetFANDutyAuto  *   m_pfnSetFANDutyAuto;
@@ -189,63 +183,63 @@ protected:
     GetFanRpm       *   m_pfnGetFANRPM[2];
 
 public:
-    std::atomic<BOOL> m_nInit;    // 初始化状态（原子操作，跨线程安全）
-    std::atomic<int> m_nExit;     // 退出信号（原子操作，跨线程安全）
-    DllHandle m_hInstDLL;      // DLL 模块句柄（RAII）
-    CConfig m_config;          // 配置
-    CGPUInfo m_GpuInfo;        // GPU 信息
+    std::atomic<BOOL> m_nInit;
+    std::atomic<int> m_nExit;
+    DllHandle m_hInstDLL;
+    CConfig m_config;
+    CGPUInfo m_GpuInfo;
     
-    // 温度与风扇状态
-    int m_nCurTemp[2];         // 当前温度 [CPU, GPU]
-    int m_nLastTemp[2];        // 上次温度
-    int m_nSetDuty[2];         // 设置负载
-    int m_nSetDutyLevel[2];    // 设置档位
-    int m_nCurDuty[2];         // 当前负载
-    int m_nCurRPM[2];          // 当前转速
+    int m_nCurTemp[2];
+    int m_nLastTemp[2];
+    int m_nSetDuty[2];
+    int m_nSetDutyLevel[2];
+    int m_nCurDuty[2];
+    int m_nCurRPM[2];
     
-    // 控制状态
-    BOOL m_bUpdateRPM;         // 是否更新 RPM
-    int m_nLastUpdateTime;     // 最后更新时间
-    BOOL m_bForcedCooling;     // 强冷模式
-    BOOL m_bTakeOverStatus;    // 接管状态
-    BOOL m_bForcedRefresh;     // 强制刷新
-    int m_nNextCheckTime;      // 下次检查时间（替代 static 局部变量）
-    BOOL m_bSetPriority;       // 是否已设置进程高优先级（替代 static 局部变量）
+    BOOL m_bUpdateRPM;
+    int m_nLastUpdateTime;
+    BOOL m_bForcedCooling;
+    BOOL m_bTakeOverStatus;
+    BOOL m_bForcedRefresh;
+    int m_nNextCheckTime;
+    BOOL m_bSetPriority;
     
-    // 平滑风扇过渡
-    int m_nSmoothedDuty[2];    // 当前平滑后的风扇转速 [CPU, GPU]
+    int m_nSmoothedDuty[2];
     
-    // 新增：温度告警
-    BOOL m_bTempWarning;       // 温度告警状态
-    int m_nWarningTemp;        // 告警温度阈值
-    HWND m_hWnd;               // 主窗口句柄（用于托盘通知）
+    BOOL m_bTempWarning;
+    int m_nWarningTemp;
+    HWND m_hWnd;
 
-    // EC 接管检测与写后验证
-    int m_nLastSetDutyEC[2];   // 最后写入 EC 的 duty 值 (0-255)，用于验证
-    int m_nEcTakeoverCount;    // EC 被 BIOS 接管次数（累计）
-    BOOL m_bEcTakeoverFlag;    // 当前周期是否检测到接管
+    int m_nLastSetDutyEC[2];
+    int m_nEcTakeoverCount;
+    BOOL m_bEcTakeoverFlag;
 
 public:
     void SetHWnd(HWND hWnd) { m_hWnd = hWnd; }
 
 public:
-    BOOL Init();               // 初始化
-    void Uninit();             // 反初始化
-    void Run();                // 主循环
-    void Work();               // 工作函数
-    void Update();             // 更新状态
-    void Control();            // 控制风扇
-    void CalcLinearDuty();     // 计算线性转速
-    void CalcStdDuty();        // 计算标准转速
-    void CalcManualDuty();     // 计算手动转速
-    void ResetFan();           // 重置风扇
-    void SetFanDuty();         // 设置风扇负载
-    void VerifyAndReclaim();   // EC 接管检测与夺回
+    BOOL Init();
+    void Uninit();
+    void Run();
+    void Work();
+    void Update();
+    void Control(const CConfig& cfg);
+    void CalcLinearDuty(const CConfig& cfg);
+    void CalcStdDuty(const CConfig& cfg);
+    void CalcManualDuty(const CConfig& cfg);
+    void ResetFan();
+    void SetFanDuty();
+    void VerifyAndReclaim();
     
-    // 新增功能
-    void EnableForcedCooling(BOOL enable);  // 启用强冷
-    void SetMaxDutyLimit(int limit);        // 设置最大转速限制
-    void SetControlMode(int mode);          // 设置控制模式
-    BOOL CheckTempWarning();                // 检查温度告警
-    void ApplyPreset(const char* presetName);     // 应用预设配置
+    void LockConfig()   { EnterCriticalSection(&m_csConfig); }
+    void UnlockConfig() { LeaveCriticalSection(&m_csConfig); }
+
+    void EnableForcedCooling(BOOL enable);
+    void SetMaxDutyLimit(int limit);
+    void SetControlMode(int mode);
+    BOOL CheckTempWarning();
+    void ApplyPreset(const char* presetName);
+
+protected:
+    CRITICAL_SECTION m_csConfig;
 };
