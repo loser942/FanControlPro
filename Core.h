@@ -1,17 +1,24 @@
 #pragma once
-using namespace std;
 #include <string>
 #include <algorithm>
 #include <atomic>
+#include <memory>
 
-// 最大转速限制（百分比）
-#define MAX_FAN_DUTY_LIMIT 85
-// 强冷模式转速
-#define FORCED_COOLING_DUTY 100
-// 温度档位（10 档）
-#define TEMP_LEVELS 10
-// 默认温度阈值数组
-#define DEFAULT_TEMP_THRESHOLDS {90, 85, 80, 75, 70, 65, 60, 55, 50, 45}
+// ── 编译期常量（替代 #define）──
+constexpr int TEMP_LEVELS          = 10;   // 温度档位
+constexpr int MAX_FAN_DUTY_LIMIT   = 85;   // 最大转速限制（百分比）
+constexpr int FORCED_COOLING_DUTY  = 100;  // 强冷模式转速
+constexpr int EC_FAN_DUTY_MAX      = 255;  // EC 风扇负载最大值（0-255）
+constexpr int RPM_PULSE_FACTOR     = 2100000; // RPM = 2100000 / 脉冲计数
+constexpr int RPM_MIN_PULSE        = 300;  // 有效脉冲最小值
+constexpr int RPM_MAX_PULSE        = 5000; // 有效脉冲最大值
+constexpr int SMOOTH_STEP_UP       = 4;    // 平滑升速步长
+constexpr int SMOOTH_STEP_DOWN     = 2;    // 平滑降速步长
+constexpr int EC_REFRESH_TICKS     = 10;   // EC 每秒刷新（10×100ms）
+constexpr int MIDNIGHT_GUARD_MS    = 10000; // 午夜回绕保护阈值
+
+// 温度阈值（constexpr 数组）
+constexpr int TEMP_LIST[TEMP_LEVELS] = { 90, 85, 80, 75, 70, 65, 60, 55, 50, 45 };
 
 // 获取当前时间（6 位数字格式，如 92500 表示 9:25:00）
 int GetTime(tm *pt = 0, int offset = 0);
@@ -45,6 +52,33 @@ typedef int(__stdcall In_1_Out_n_Func)(int);
 typedef int(__stdcall In_2_Out_n_Func)(int, int);
 typedef PCWSTR(__stdcall In_0_Out_s_Func)(void);
 
+// ── RAII DLL 句柄 ──
+// 自动管理 LoadLibrary/FreeLibrary 生命周期，防止泄漏
+class DllHandle
+{
+public:
+    DllHandle() : m_h(nullptr) {}
+    explicit DllHandle(HMODULE h) : m_h(h) {}
+    ~DllHandle() { Close(); }
+
+    DllHandle(const DllHandle&) = delete;
+    DllHandle& operator=(const DllHandle&) = delete;
+    DllHandle(DllHandle&& other) noexcept : m_h(other.m_h) { other.m_h = nullptr; }
+    DllHandle& operator=(DllHandle&& other) noexcept {
+        if (this != &other) { Close(); m_h = other.m_h; other.m_h = nullptr; }
+        return *this;
+    }
+
+    bool Load(PCSTR path) { Close(); m_h = LoadLibraryA(path); return m_h != nullptr; }
+    void Close() { if (m_h) { FreeLibrary(m_h); m_h = nullptr; } }
+    HMODULE Get() const { return m_h; }
+    explicit operator bool() const { return m_h != nullptr; }
+    FARPROC GetProc(PCSTR name) const { return m_h ? ::GetProcAddress(m_h, name) : nullptr; }
+
+private:
+    HMODULE m_h;
+};
+
 // GPU 信息类
 class CGPUInfo
 {
@@ -73,7 +107,7 @@ public:
     BOOL LockFrequency(int frequency = 0); // 锁定频率
 
 protected:
-    HMODULE m_hGPUdll;
+    DllHandle m_hGPUdll;
     int m_nLockClock;
     // 接口函数指针
     In_0_Out_n_Func *m_pfnInitGPU_API;
@@ -156,7 +190,7 @@ protected:
 public:
     std::atomic<BOOL> m_nInit;    // 初始化状态（原子操作，跨线程安全）
     std::atomic<int> m_nExit;     // 退出信号（原子操作，跨线程安全）
-    HINSTANCE m_hInstDLL;      // DLL 模块句柄
+    DllHandle m_hInstDLL;      // DLL 模块句柄（RAII）
     CConfig m_config;          // 配置
     CGPUInfo m_GpuInfo;        // GPU 信息
     
