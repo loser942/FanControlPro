@@ -16,6 +16,7 @@ constexpr int SMOOTH_STEP_UP       = 4;    // 平滑升速步长
 constexpr int SMOOTH_STEP_DOWN     = 2;    // 平滑降速步长
 constexpr int EC_REFRESH_TICKS     = 10;   // EC 每秒刷新（10×100ms）
 constexpr int MIDNIGHT_GUARD_MS    = 10000; // 午夜回绕保护阈值
+constexpr int EC_TAKEOVER_THRESHOLD = 15;    // EC 接管检测阈值（duty偏差>15%视为BIOS接管）
 
 // 温度阈值（constexpr 数组）
 constexpr int TEMP_LIST[TEMP_LEVELS] = { 90, 85, 80, 75, 70, 65, 60, 55, 50, 45 };
@@ -219,9 +220,14 @@ public:
     int m_nWarningTemp;        // 告警温度阈值
     HWND m_hWnd;               // 主窗口句柄（用于托盘通知）
 
+    // EC 接管检测与写后验证
+    int m_nLastSetDutyEC[2];   // 最后写入 EC 的 duty 值 (0-255)，用于验证
+    int m_nEcTakeoverCount;    // EC 被 BIOS 接管次数（累计）
+    BOOL m_bEcTakeoverFlag;    // 当前周期是否检测到接管
+
 public:
     void SetHWnd(HWND hWnd) { m_hWnd = hWnd; }
-    
+
 public:
     BOOL Init();               // 初始化
     void Uninit();             // 反初始化
@@ -234,6 +240,7 @@ public:
     void CalcManualDuty();     // 计算手动转速
     void ResetFan();           // 重置风扇
     void SetFanDuty();         // 设置风扇负载
+    void VerifyAndReclaim();   // EC 接管检测与夺回
     
     // 新增功能
     void EnableForcedCooling(BOOL enable);  // 启用强冷

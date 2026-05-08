@@ -363,6 +363,12 @@ CCore::CCore()
     m_bTempWarning = FALSE;
     m_nWarningTemp = 90;  // 90 度告警
     m_hWnd = NULL;
+
+    // EC 接管检测
+    m_nLastSetDutyEC[0] = 0;
+    m_nLastSetDutyEC[1] = 0;
+    m_nEcTakeoverCount = 0;
+    m_bEcTakeoverFlag = FALSE;
 }
 
 CCore::~CCore()
@@ -482,9 +488,8 @@ void CCore::Run()
 void CCore::Work()
 {
     Update();
-    
-    // 检查温度告警
     CheckTempWarning();
+    VerifyAndReclaim();  // EC 接管检测与夺回
     
     // 强冷模式处理：一直满转直到用户手动关闭
     if (m_bForcedCooling)
@@ -698,10 +703,42 @@ void CCore::ResetFan()
         for (int i = 0; i < fanCount; i++)
             m_pfnSetFANDutyAuto(i + 1);
         m_bTakeOverStatus = FALSE;
+        m_nLastSetDutyEC[0] = 0;
+        m_nLastSetDutyEC[1] = 0;
         
         // 重置平滑追踪，下次接管时从0开始平滑过渡
         m_nSmoothedDuty[0] = 0;
         m_nSmoothedDuty[1] = 0;
+    }
+}
+
+void CCore::VerifyAndReclaim()
+{
+    if (!m_bTakeOverStatus || m_pfnGetTempFanDuty == NULL)
+        return;
+
+    m_bEcTakeoverFlag = FALSE;
+    for (int i = 0; i < 2; i++)
+    {
+        if (m_nLastSetDutyEC[i] <= 0) continue;
+
+        ECData data = m_pfnGetTempFanDuty(i + 1);
+        int curDutyEC = int(data.FanDuty);
+        
+        // ── 写后验证：比较 EC 实际 duty 与我们最后写入的 duty ──
+        // 偏差 > EC_TAKEOVER_THRESHOLD（15%）说明 BIOS 已接管
+        int deviation = abs(curDutyEC - m_nLastSetDutyEC[i]);
+        if (deviation > EC_FAN_DUTY_MAX * EC_TAKEOVER_THRESHOLD / 100)
+        {
+            m_bEcTakeoverFlag = TRUE;
+            m_nEcTakeoverCount++;
+            
+            // 立即夺回控制权
+            m_pfnSetFanDuty(i + 1, m_nLastSetDutyEC[i]);
+            
+            TRACE1("EC 接管检测 #%d: 风扇%d 写入=%d 实际=%d，已夺回\n",
+                   m_nEcTakeoverCount, i, m_nLastSetDutyEC[i], curDutyEC);
+        }
     }
 }
 
@@ -738,6 +775,7 @@ void CCore::SetFanDuty()
         }
         
         m_pfnSetFanDuty(i + 1, duty);
+        if (i < 2) m_nLastSetDutyEC[i] = duty;  // 记录写入值用于接管检测
     }
     m_bTakeOverStatus = TRUE;
 }
