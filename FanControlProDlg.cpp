@@ -12,13 +12,11 @@
 
 #define WM_SHOWTASK (WM_USER + 1)
 
-// CAboutDlg 对话框
 class CAboutDlg : public CDialogEx
 {
 public:
     CAboutDlg();
     enum { IDD = IDD_ABOUTBOX };
-
 protected:
     virtual void DoDataExchange(CDataExchange* pDX);
     DECLARE_MESSAGE_MAP()
@@ -34,7 +32,6 @@ void CAboutDlg::DoDataExchange(CDataExchange* pDX)
 BEGIN_MESSAGE_MAP(CAboutDlg, CDialogEx)
 END_MESSAGE_MAP()
 
-// CFanControlProDlg 对话框
 CFanControlProDlg::CFanControlProDlg(CWnd* pParent)
     : CDialogEx(CFanControlProDlg::IDD, pParent)
 {
@@ -50,16 +47,12 @@ CFanControlProDlg::CFanControlProDlg(CWnd* pParent)
     m_bLastVisible = FALSE;
     m_bTrayAdded = FALSE;
     m_nTrayLastUpdate = -1;
-
-    // 初始化手动模式控件 ID
     for (int i = 0; i < 2; i++)
         for (int j = 0; j < 10; j++)
             m_nDutyEditCtlID[i][j] = 0;
 }
 
-CFanControlProDlg::~CFanControlProDlg()
-{
-}
+CFanControlProDlg::~CFanControlProDlg() {}
 
 void CFanControlProDlg::DoDataExchange(CDataExchange* pDX)
 {
@@ -118,8 +111,6 @@ END_MESSAGE_MAP()
 BOOL CFanControlProDlg::OnInitDialog()
 {
     CDialogEx::OnInitDialog();
-
-    // 设置系统菜单
     CMenu* pSysMenu = GetSystemMenu(FALSE);
     if (pSysMenu != NULL)
     {
@@ -131,52 +122,34 @@ BOOL CFanControlProDlg::OnInitDialog()
             pSysMenu->AppendMenu(MF_STRING, IDM_ABOUTBOX, strAboutMenu);
         }
     }
-
     SetIcon(m_hIcon, TRUE);
     SetIcon(m_hIcon, FALSE);
-
-    // 获取窗口尺寸
     CRect rect;
     this->GetWindowRect(rect);
     m_nWindowSize[0] = rect.Width();
     m_nWindowSize[1] = rect.Height();
-    
-    // 初始化模式选择框
     m_ctlMode.AddString("自动模式");
     m_ctlMode.AddString("手动模式");
     m_ctlMode.AddString("强冷模式");
     m_ctlMode.SetCurSel(0);
-
-    // 初始化滑块
     m_ctlCpuFanSlider.SetRange(0, 100);
     m_ctlCpuFanSlider.SetPos(50);
     m_ctlGpuFanSlider.SetRange(0, 100);
     m_ctlGpuFanSlider.SetPos(50);
-    
-    // 初始化最大转速限制滑块（默认 85%）
     m_ctlMaxDutySlider.SetRange(50, 100);
     m_ctlMaxDutySlider.SetPos(85);
     m_ctlMaxDutyEdit.SetWindowText("85");
-
-    // 初始化进度条
     m_ctlCpuTempProgress.SetRange(0, 100);
     m_ctlGpuTempProgress.SetRange(0, 100);
-
     SetTray("FanControl Pro - 智能风扇控制");
-
-    // 启动核心线程
     if (m_hCoreThread == NULL)
     {
-        m_core.SetHWnd(this->m_hWnd);  // 传入窗口句柄用于温度告警
+        m_core.SetHWnd(this->m_hWnd);
         DWORD dwThreadID = 0;
         m_hCoreThread = CreateThread(NULL, NULL, CoreThread, this, NULL, &dwThreadID);
     }
-    
     SetTimer(0, 100, NULL);
-    
-    // 检查开机自启状态
     m_ctlAutorun.SetCheck(SetAutorunReg(FALSE) || SetAutorunTask(FALSE));
-
     return TRUE;
 }
 
@@ -238,7 +211,6 @@ void CFanControlProDlg::OnOK()
 {
     if (!m_core.m_nExit)
         m_core.m_nExit = 1;
-
     if (m_core.m_nExit == 1)
     {
         int count = 0;
@@ -267,43 +239,32 @@ void CFanControlProDlg::OnCancel()
         SetForegroundWindow();
     }
 }
+
 void CFanControlProDlg::OnTimer(UINT_PTR nIDEvent)
 {
     CDialogEx::OnTimer(nIDEvent);
-    
     if (m_core.m_nExit == 2)
     {
         OnOK();
     }
-
     m_nCheckThreadCount++;
-    if (m_nCheckThreadCount > 300)  // 30秒超时后仍异常，才强行终止
+    if (m_nCheckThreadCount > 300)
     {
         KillTimer(0);
         m_core.m_nExit = 2;
-        
-        // 先尝试优雅等待线程退出
         if (WaitForSingleObject(m_hCoreThread, 3000) == WAIT_TIMEOUT)
         {
             TerminateThread(m_hCoreThread, -1);
         }
         CloseHandle(m_hCoreThread);
         m_hCoreThread = NULL;
-        
-        // ── 紧急安全：强制恢复风扇自动控制 ──
-        // TerminateThread 暴力杀线程后析构函数可能不会正常运行，
-        // 必须在此显式归还 BIOS 控制权，防止风扇卡在异常转速
         m_core.ResetFan();
-        
         MessageBox("检测到核心线程异常，请检查系统兼容性。");
         OnOK();
     }
-
     if (m_core.m_nInit != 1)
         return;
-
     m_bWindowVisible = IsWindowVisible();
-    
     if (m_bWindowVisible && !m_bLastVisible)
     {
         m_core.m_bUpdateRPM = TRUE;
@@ -314,7 +275,6 @@ void CFanControlProDlg::OnTimer(UINT_PTR nIDEvent)
         m_core.m_bUpdateRPM = FALSE;
     }
     m_bLastVisible = m_bWindowVisible;
-    
     if (m_nLastCoreUpdateTime != m_core.m_nLastUpdateTime)
     {
         if (m_bWindowVisible)
@@ -326,20 +286,13 @@ void CFanControlProDlg::OnTimer(UINT_PTR nIDEvent)
 
 void CFanControlProDlg::UpdateGui(BOOL bFull)
 {
-    // 更新温度显示
     char str[256];
-    
-    // CPU 温度
     sprintf_s(str, "CPU: %d°C", m_core.m_nCurTemp[0]);
     m_ctlCpuTempText.SetWindowText(str);
     m_ctlCpuTempProgress.SetPos(min(100, m_core.m_nCurTemp[0]));
-    
-    // GPU 温度
     sprintf_s(str, "GPU: %d°C", m_core.m_nCurTemp[1]);
     m_ctlGpuTempText.SetWindowText(str);
     m_ctlGpuTempProgress.SetPos(min(100, m_core.m_nCurTemp[1]));
-    
-    // RPM 显示
     if (m_core.m_nCurRPM[0] >= 0)
     {
         sprintf_s(str, "CPU RPM: %d", m_core.m_nCurRPM[0]);
@@ -349,7 +302,6 @@ void CFanControlProDlg::UpdateGui(BOOL bFull)
     {
         m_ctlCpuRpmText.SetWindowText("CPU RPM: --");
     }
-    
     if (m_core.m_nCurRPM[1] >= 0)
     {
         sprintf_s(str, "GPU RPM: %d", m_core.m_nCurRPM[1]);
@@ -359,71 +311,69 @@ void CFanControlProDlg::UpdateGui(BOOL bFull)
     {
         m_ctlGpuRpmText.SetWindowText("GPU RPM: --");
     }
-    
-    // GPU 使用率
     sprintf_s(str, "GPU: %d%%", m_core.m_GpuInfo.m_nUsage);
     m_ctlGpuUsageText.SetWindowText(str);
     
-    // 更新风扇滑块（手动模式下）
-    if (m_core.m_config.ControlMode == 1)
+    int nControlMode, nManualDuty0, nManualDuty1;
+    m_core.LockConfig();
+    nControlMode = m_core.m_config.ControlMode;
+    nManualDuty0 = m_core.m_config.ManualDuty[0];
+    nManualDuty1 = m_core.m_config.ManualDuty[1];
+    m_core.UnlockConfig();
+    if (nControlMode == 1)
     {
-        m_ctlCpuFanSlider.SetPos(m_core.m_config.ManualDuty[0]);
-        m_ctlGpuFanSlider.SetPos(m_core.m_config.ManualDuty[1]);
-        sprintf_s(str, "%d%%", m_core.m_config.ManualDuty[0]);
+        m_ctlCpuFanSlider.SetPos(nManualDuty0);
+        m_ctlGpuFanSlider.SetPos(nManualDuty1);
+        sprintf_s(str, "%d%%", nManualDuty0);
         m_ctlCpuFanEdit.SetWindowText(str);
-        sprintf_s(str, "%d%%", m_core.m_config.ManualDuty[1]);
+        sprintf_s(str, "%d%%", nManualDuty1);
         m_ctlGpuFanEdit.SetWindowText(str);
     }
     
-    // 强冷模式状态同步
     int fc = m_ctlForcedCooling.GetCheck();
     if (fc ^ m_core.m_bForcedCooling)
     {
         m_ctlForcedCooling.SetCheck(m_core.m_bForcedCooling);
     }
-    
     if (!bFull)
         return;
     
-    // 完整更新
+    BOOL bTakeOver, bLinear, bLockGpu;
+    int nUpdateInterval, nTransitionTemp, nForceTemp, nGpuFreq, nMaxDuty;
+    m_core.LockConfig();
+    bTakeOver       = m_core.m_config.TakeOver;
+    bLinear         = m_core.m_config.Linear;
+    bLockGpu        = m_core.m_config.LockGPUFrequency;
+    nUpdateInterval = m_core.m_config.UpdateInterval;
+    nTransitionTemp = m_core.m_config.TransitionTemp;
+    nForceTemp      = m_core.m_config.ForceTemp;
+    nGpuFreq        = m_core.m_config.GPUFrequency;
+    nMaxDuty        = m_core.m_config.MaxDutyLimit;
+    m_core.UnlockConfig();
+    
     int to = m_ctlTakeOver.GetCheck();
-    if (to ^ m_core.m_config.TakeOver)
-    {
-        m_ctlTakeOver.SetCheck(m_core.m_config.TakeOver);
-    }
-    
+    if (to ^ bTakeOver) m_ctlTakeOver.SetCheck(bTakeOver);
     int lc = m_ctlLinear.GetCheck();
-    if (lc ^ m_core.m_config.Linear)
-    {
-        m_ctlLinear.SetCheck(m_core.m_config.Linear);
-    }
-    
+    if (lc ^ bLinear) m_ctlLinear.SetCheck(bLinear);
     int lf = m_ctlLockGpu.GetCheck();
-    if (lf ^ m_core.m_config.LockGPUFrequency)
-    {
-        m_ctlLockGpu.SetCheck(m_core.m_config.LockGPUFrequency);
-    }
+    if (lf ^ bLockGpu) m_ctlLockGpu.SetCheck(bLockGpu);
     
-    // 更新配置显示
-    sprintf_s(str, "%d", m_core.m_config.UpdateInterval);
+    sprintf_s(str, "%d", nUpdateInterval);
     m_ctlInterval.SetWindowTextA(str);
-    sprintf_s(str, "%d", m_core.m_config.TransitionTemp);
+    sprintf_s(str, "%d", nTransitionTemp);
     m_ctlTransition.SetWindowTextA(str);
-    sprintf_s(str, "%d", m_core.m_config.ForceTemp);
+    sprintf_s(str, "%d", nForceTemp);
     m_ctlForceTemp.SetWindowTextA(str);
-    sprintf_s(str, "%d", m_core.m_config.GPUFrequency);
+    sprintf_s(str, "%d", nGpuFreq);
     m_ctlFrequency.SetWindowTextA(str);
-    
-    // 更新最大转速限制显示
-    sprintf_s(str, "%d", m_core.m_config.MaxDutyLimit);
+    sprintf_s(str, "%d", nMaxDuty);
     m_ctlMaxDutyEdit.SetWindowTextA(str);
-    m_ctlMaxDutySlider.SetPos(m_core.m_config.MaxDutyLimit);
+    m_ctlMaxDutySlider.SetPos(nMaxDuty);
 }
 
 BOOL CFanControlProDlg::CheckAndSave()
 {
     char str[256];
-    
     m_ctlInterval.GetWindowTextA(str, 256);
     int nInterval = atoi(str);
     if (nInterval < 1 || nInterval > 5)
@@ -432,7 +382,6 @@ BOOL CFanControlProDlg::CheckAndSave()
         m_ctlInterval.SetFocus();
         return FALSE;
     }
-    
     m_ctlTransition.GetWindowTextA(str, 256);
     int nTransition = atoi(str);
     if (nTransition < 0 || nTransition > 10)
@@ -441,7 +390,6 @@ BOOL CFanControlProDlg::CheckAndSave()
         m_ctlTransition.SetFocus();
         return FALSE;
     }
-    
     m_ctlForceTemp.GetWindowTextA(str, 256);
     int nForceTemp = atoi(str);
     if (nForceTemp < 40 || nForceTemp > 90)
@@ -450,7 +398,6 @@ BOOL CFanControlProDlg::CheckAndSave()
         m_ctlForceTemp.SetFocus();
         return FALSE;
     }
-    
     m_ctlFrequency.GetWindowTextA(str, 256);
     int nFrequency = atoi(str);
     if (!CheckInputFrequency(nFrequency))
@@ -458,36 +405,37 @@ BOOL CFanControlProDlg::CheckAndSave()
         m_ctlFrequency.SetFocus();
         return FALSE;
     }
-
     if (nFrequency == 0)
         nFrequency = m_core.m_GpuInfo.m_nStandardFrequency;
-
-    // 保存配置
+    m_core.LockConfig();
     m_core.m_config.UpdateInterval = nInterval;
     m_core.m_config.TransitionTemp = nTransition;
     m_core.m_config.ForceTemp = nForceTemp;
     m_core.m_config.GPUFrequency = nFrequency;
+    m_core.UnlockConfig();
     m_core.m_config.SaveConfig();
-    
     return TRUE;
 }
 
 void CFanControlProDlg::OnBnClickedButtonSave()
 {
-    if (CheckAndSave())
-        UpdateGui(TRUE);
+    if (CheckAndSave()) UpdateGui(TRUE);
 }
 
 void CFanControlProDlg::OnBnClickedButtonReset()
 {
+    m_core.LockConfig();
     m_core.m_config.LoadDefault();
+    m_core.UnlockConfig();
     m_core.m_config.SaveConfig();
     UpdateGui(TRUE);
 }
 
 void CFanControlProDlg::OnBnClickedButtonLoad()
 {
+    m_core.LockConfig();
     m_core.m_config.LoadConfig();
+    m_core.UnlockConfig();
     UpdateGui(TRUE);
 }
 
@@ -500,7 +448,6 @@ void CFanControlProDlg::SetTray(PCSTR string)
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_SHOWTASK;
     nid.hIcon = LoadIcon(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDR_MAINFRAME));
-    
     if (string)
     {
         strcpy_s(nid.szTip, 128, string);
@@ -520,9 +467,7 @@ void CFanControlProDlg::SetTray(PCSTR string)
 
 LRESULT CFanControlProDlg::OnShowTask(WPARAM wParam, LPARAM lParam)
 {
-    if (wParam != IDR_MAINFRAME)
-        return 1;
-    
+    if (wParam != IDR_MAINFRAME) return 1;
     switch (lParam)
     {
     case WM_RBUTTONUP:
@@ -537,18 +482,9 @@ LRESULT CFanControlProDlg::OnShowTask(WPARAM wParam, LPARAM lParam)
         menu.AppendMenu(MFT_STRING, IDR_EXIT, "退出");
         SetForegroundWindow();
         int xx = TrackPopupMenu(menu, TPM_RETURNCMD, lpoint->x, lpoint->y, NULL, this->m_hWnd, NULL);
-        if (xx == IDR_SHOW)
-        {
-            OnCancel();
-        }
-        else if (xx == IDR_FORCED)
-        {
-            m_core.EnableForcedCooling(!m_core.m_bForcedCooling);
-        }
-        else if (xx == IDR_EXIT)
-        {
-            OnOK();
-        }
+        if (xx == IDR_SHOW) OnCancel();
+        else if (xx == IDR_FORCED) m_core.EnableForcedCooling(!m_core.m_bForcedCooling);
+        else if (xx == IDR_EXIT) OnOK();
         HMENU hmenu = menu.Detach();
         menu.DestroyMenu();
         delete lpoint;
@@ -576,7 +512,9 @@ LRESULT CFanControlProDlg::OnShowTask(WPARAM wParam, LPARAM lParam)
 
 void CFanControlProDlg::OnBnClickedCheckTakeover()
 {
+    m_core.LockConfig();
     m_core.m_config.TakeOver = m_ctlTakeOver.GetCheck();
+    m_core.UnlockConfig();
 }
 
 void CFanControlProDlg::OnBnClickedCheckForce()
@@ -585,13 +523,17 @@ void CFanControlProDlg::OnBnClickedCheckForce()
     if (m_core.m_bForcedCooling)
     {
         m_ctlMode.SetCurSel(2);
+        m_core.LockConfig();
         m_core.m_config.ControlMode = 2;
+        m_core.UnlockConfig();
     }
 }
 
 void CFanControlProDlg::OnBnClickedCheckLinear()
 {
+    m_core.LockConfig();
     m_core.m_config.Linear = m_ctlLinear.GetCheck();
+    m_core.UnlockConfig();
 }
 
 void CFanControlProDlg::SetAdvancedMode(BOOL bAdvanced)
@@ -623,21 +565,9 @@ void CFanControlProDlg::OnBnClickedCheckAutorun()
     {
         int rv = MessageBox("请选择开机自动启动方式：\r\n\r\n\"是\"=注册表方式（简单）\r\n\"否\"=任务计划程序（推荐）\r\n\"取消\"=放弃设置", 
             "设置开机自启", MB_YESNOCANCEL);
-        
-        if (IDYES == rv)
-        {
-            SetAutorunReg(TRUE, TRUE);
-            SetAutorunReg(FALSE);
-        }
-        else if (IDNO == rv)
-        {
-            SetAutorunTask(TRUE, TRUE);
-            SetAutorunTask(FALSE);
-        }
-        else
-        {
-            m_ctlAutorun.SetCheck(FALSE);
-        }
+        if (IDYES == rv) { SetAutorunReg(TRUE, TRUE); SetAutorunReg(FALSE); }
+        else if (IDNO == rv) { SetAutorunTask(TRUE, TRUE); SetAutorunTask(FALSE); }
+        else { m_ctlAutorun.SetCheck(FALSE); }
     }
     else
     {
@@ -649,7 +579,9 @@ void CFanControlProDlg::OnBnClickedCheckAutorun()
 
 void CFanControlProDlg::OnBnClickedCheckLockGpu()
 {
+    m_core.LockConfig();
     m_core.m_config.LockGPUFrequency = m_ctlLockGpu.GetCheck();
+    m_core.UnlockConfig();
 }
 
 void CFanControlProDlg::OnBnClickedSilent()
@@ -668,8 +600,6 @@ void CFanControlProDlg::OnCbnSelchangeComboMode()
 {
     int sel = m_ctlMode.GetCurSel();
     m_core.SetControlMode(sel);
-    
-    // 手动模式时启用滑块
     BOOL bEnableSliders = (sel == 1);
     m_ctlCpuFanSlider.EnableWindow(bEnableSliders);
     m_ctlGpuFanSlider.EnableWindow(bEnableSliders);
@@ -682,7 +612,9 @@ void CFanControlProDlg::OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBa
     if (pScrollBar == (CScrollBar*)&m_ctlCpuFanSlider)
     {
         int pos = m_ctlCpuFanSlider.GetPos();
+        m_core.LockConfig();
         m_core.m_config.ManualDuty[0] = pos;
+        m_core.UnlockConfig();
         char str[16];
         sprintf_s(str, "%d%%", pos);
         m_ctlCpuFanEdit.SetWindowText(str);
@@ -690,7 +622,9 @@ void CFanControlProDlg::OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBa
     else if (pScrollBar == (CScrollBar*)&m_ctlGpuFanSlider)
     {
         int pos = m_ctlGpuFanSlider.GetPos();
+        m_core.LockConfig();
         m_core.m_config.ManualDuty[1] = pos;
+        m_core.UnlockConfig();
         char str[16];
         sprintf_s(str, "%d%%", pos);
         m_ctlGpuFanEdit.SetWindowText(str);
@@ -703,20 +637,15 @@ void CFanControlProDlg::OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBa
         sprintf_s(str, "%d%%", pos);
         m_ctlMaxDutyEdit.SetWindowText(str);
     }
-    
     CDialogEx::OnHScroll(nSBCode, nPos, pScrollBar);
 }
 
-// 开机自启相关函数
 BOOL CFanControlProDlg::SetAutorunReg(BOOL bWrite, BOOL bAutorun)
 {
     HKEY hKey;
     if (RegOpenKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", &hKey) != ERROR_SUCCESS)
-    {
         return FALSE;
-    }
     PCSTR strProduct = "FanControlPro";
-
     if (bWrite)
     {
         if (bAutorun)
@@ -730,10 +659,7 @@ BOOL CFanControlProDlg::SetAutorunReg(BOOL bWrite, BOOL bAutorun)
                 return FALSE;
             }
         }
-        else
-        {
-            RegDeleteValue(hKey, strProduct);
-        }
+        else { RegDeleteValue(hKey, strProduct); }
         RegCloseKey(hKey);
     }
     else
@@ -756,41 +682,22 @@ BOOL CFanControlProDlg::SetAutorunTask(BOOL bWrite, BOOL bAutorun)
     CString strPath = GetExePath() + "\\FanControlPro.exe";
     CString strcmd;
     CString strXmlPath = GetExePath() + "\\task.xml";
-    
     if (bWrite)
     {
         if (bAutorun)
         {
-            if (!CreateTaskXml(strXmlPath, strPath))
-            {
-                return FALSE;
-            }
+            if (!CreateTaskXml(strXmlPath, strPath)) return FALSE;
             strcmd.Format("SCHTASKS /Create /F /XML \"%s\" /TN \"%s\"", strXmlPath, strTaskName);
         }
-        else
-        {
-            strcmd = "SCHTASKS /Delete /F /TN \"" + strTaskName + "\"";
-        }
+        else { strcmd = "SCHTASKS /Delete /F /TN \"" + strTaskName + "\""; }
     }
-    else
-    {
-        strcmd = "SCHTASKS /Query /TN \"" + strTaskName + "\"";
-    }
-    
+    else { strcmd = "SCHTASKS /Query /TN \"" + strTaskName + "\""; }
     CString rs = ExecuteCmd(strcmd);
-    if (bWrite && bAutorun)
-        remove(strXmlPath);
-    
-    if (rs.Find("拒绝访问") >= 0)
-        return FALSE;
-    
-    if (bWrite && bAutorun && rs.Find("成功") >= 0)
-        return TRUE;
-    if (!bWrite && rs.Find(strTaskName) >= 0)
-        return TRUE;
-    if (bWrite && !bAutorun)
-        return TRUE;
-    
+    if (bWrite && bAutorun) remove(strXmlPath);
+    if (rs.Find("拒绝访问") >= 0) return FALSE;
+    if (bWrite && bAutorun && rs.Find("成功") >= 0) return TRUE;
+    if (!bWrite && rs.Find(strTaskName) >= 0) return TRUE;
+    if (bWrite && !bAutorun) return TRUE;
     return FALSE;
 }
 
@@ -801,20 +708,15 @@ CString CFanControlProDlg::ExecuteCmd(CString str)
     sa.nLength = sizeof(SECURITY_ATTRIBUTES);
     sa.lpSecurityDescriptor = NULL;
     sa.bInheritHandle = TRUE;
-    
-    if (!CreatePipe(&hRead, &hWrite, &sa, 0))
-        return "[执行失败]";
-    
+    if (!CreatePipe(&hRead, &hWrite, &sa, 0)) return "[执行失败]";
     STARTUPINFO si = { sizeof(si) };
     PROCESS_INFORMATION pi;
     si.hStdError = hWrite;
     si.hStdOutput = hWrite;
     si.wShowWindow = SW_HIDE;
     si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
-    
     char cmdline[1024];
     strcpy_s(cmdline, 1024, str);
-    
     if (!CreateProcess(NULL, cmdline, NULL, NULL, TRUE, NULL, NULL, NULL, &si, &pi))
     {
         CloseHandle(hWrite);
@@ -822,7 +724,6 @@ CString CFanControlProDlg::ExecuteCmd(CString str)
         return "[执行失败]";
     }
     CloseHandle(hWrite);
-
     char buffer[4096] = "";
     CString output;
     DWORD byteRead;
@@ -830,12 +731,9 @@ CString CFanControlProDlg::ExecuteCmd(CString str)
     while (true)
     {
         Sleep(100);
-        if (ReadFile(hRead, buffer, 4095, &byteRead, NULL) == NULL)
-            break;
-        if (byteRead)
-            output += buffer;
-        if (i++ >= 50)
-            break;
+        if (ReadFile(hRead, buffer, 4095, &byteRead, NULL) == NULL) break;
+        if (byteRead) output += buffer;
+        if (i++ >= 50) break;
     }
     CloseHandle(hRead);
     CloseHandle(pi.hProcess);
@@ -887,12 +785,10 @@ BOOL CFanControlProDlg::CreateTaskXml(PCSTR strXmlPath, PCSTR strTargetPath)
 "    </Exec>\r\n"
 "  </Actions>\r\n"
 "</Task>\r\n";
-    
     char str[10240];
     sprintf_s(str, 10240, XmlStr, strTargetPath);
     FILE *fp = fopen(strXmlPath, "wt");
-    if (!fp)
-        return FALSE;
+    if (!fp) return FALSE;
     fwrite(str, strlen(str), 1, fp);
     fclose(fp);
     return TRUE;
