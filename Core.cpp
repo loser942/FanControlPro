@@ -126,7 +126,6 @@ CGPUInfo::~CGPUInfo()
         LockFrequency();
         m_pfnCloseGPU_API();
     }
-    // DllHandle 析构自动 FreeLibrary
 }
 
 BOOL CGPUInfo::Update()
@@ -186,45 +185,40 @@ CConfig::CConfig()
 
 void CConfig::LoadDefault()
 {
-    // 针对 i5-13500H + RTX 4060 优化的默认曲线
-    // CPU 风扇曲线（更激进一些，因为 13 代酷睿温度上升快）
     int i = 0;
-    DutyList[0][i++] = 85;  // 90°C+ -> 85% (限制在 85%)
-    DutyList[0][i++] = 80;  // 85°C+
-    DutyList[0][i++] = 70;  // 80°C+
-    DutyList[0][i++] = 55;  // 75°C+
-    DutyList[0][i++] = 40;  // 70°C+
-    DutyList[0][i++] = 30;  // 65°C+
-    DutyList[0][i++] = 25;  // 60°C+
-    DutyList[0][i++] = 20;  // 55°C+
-    DutyList[0][i++] = 15;  // 50°C+
-    DutyList[0][i++] = 10;  // 50°C-
+    DutyList[0][i++] = 85;
+    DutyList[0][i++] = 80;
+    DutyList[0][i++] = 70;
+    DutyList[0][i++] = 55;
+    DutyList[0][i++] = 40;
+    DutyList[0][i++] = 30;
+    DutyList[0][i++] = 25;
+    DutyList[0][i++] = 20;
+    DutyList[0][i++] = 15;
+    DutyList[0][i++] = 10;
 
-    // GPU 风扇曲线（RTX 4060 功耗较低，可以相对保守）
     for (int j = 0; j < TEMP_LEVELS; j++)
         DutyList[1][j] = DutyList[0][j];
     
-    // GPU 在低温时可以更低转速
-    DutyList[1][8] = 12;  // 50°C+
-    DutyList[1][9] = 8;   // 50°C-
+    DutyList[1][8] = 12;
+    DutyList[1][9] = 8;
 
-    TransitionTemp = 3;        // 3 度迟滞
-    UpdateInterval = 2;        // 2 秒更新
-    Linear = FALSE;            // 默认阶梯模式
-    TakeOver = TRUE;           // 默认接管控制
-    ForceTemp = 55;            // 55 度触发强冷
-    MaxDutyLimit = MAX_FAN_DUTY_LIMIT; // 85% 最大限制
+    TransitionTemp = 3;
+    UpdateInterval = 2;
+    Linear = FALSE;
+    TakeOver = TRUE;
+    ForceTemp = 55;
+    MaxDutyLimit = MAX_FAN_DUTY_LIMIT;
     
     LockGPUFrequency = FALSE;
     GPUFrequency = 0;
     
-    ControlMode = 0;           // 自动模式
-    ManualDuty[0] = 50;        // 手动模式默认 50%
+    ControlMode = 0;
+    ManualDuty[0] = 50;
     ManualDuty[1] = 50;
 }
 
-// 配置格式版本魔数（向前兼容：版本不匹配则回退默认配置）
-#define CONFIG_MAGIC 0x46504346  // "FPCF"
+#define CONFIG_MAGIC 0x46504346
 #define CONFIG_VERSION 1
 
 void CConfig::LoadConfig()
@@ -235,8 +229,6 @@ void CConfig::LoadConfig()
         SaveConfig();
         return;
     }
-
-    // 校验版本魔数（向前兼容保护）
     int header[2] = {0};
     if (fread(header, sizeof(header), 1, fp) != 1 ||
         header[0] != CONFIG_MAGIC || header[1] != CONFIG_VERSION)
@@ -246,11 +238,8 @@ void CConfig::LoadConfig()
         SaveConfig();
         return;
     }
-
-    // 跳过 ConfigPath（运行时路径，不序列化到文件）
     const size_t configDataOffset = offsetof(CConfig, ConfigPath) + sizeof(ConfigPath);
     const size_t configDataSize = sizeof(*this) - configDataOffset;
-
     if (fread(reinterpret_cast<char*>(this) + configDataOffset, configDataSize, 1, fp) != 1)
     {
         fclose(fp);
@@ -269,10 +258,8 @@ void CConfig::SaveConfig()
         AfxMessageBox("无法写入配置文件");
         return;
     }
-    // 写入版本魔数（向前兼容）
     int header[2] = { CONFIG_MAGIC, CONFIG_VERSION };
     fwrite(header, sizeof(header), 1, fp);
-    // 跳过 ConfigPath（运行时路径，不序列化到文件）
     const size_t configDataOffset = offsetof(CConfig, ConfigPath) + sizeof(ConfigPath);
     const size_t configDataSize = sizeof(*this) - configDataOffset;
     fwrite(reinterpret_cast<char*>(this) + configDataOffset, configDataSize, 1, fp);
@@ -355,25 +342,25 @@ CCore::CCore()
     m_nNextCheckTime = 0;
     m_bSetPriority = FALSE;
     
-    // 平滑风扇过渡初始值
     m_nSmoothedDuty[0] = 0;
     m_nSmoothedDuty[1] = 0;
     
-    // 新增：温度告警
     m_bTempWarning = FALSE;
-    m_nWarningTemp = 90;  // 90 度告警
+    m_nWarningTemp = 90;
     m_hWnd = NULL;
 
-    // EC 接管检测
     m_nLastSetDutyEC[0] = 0;
     m_nLastSetDutyEC[1] = 0;
     m_nEcTakeoverCount = 0;
     m_bEcTakeoverFlag = FALSE;
+
+    InitializeCriticalSection(&m_csConfig);
 }
 
 CCore::~CCore()
 {
     Uninit();
+    DeleteCriticalSection(&m_csConfig);
 }
 
 BOOL CCore::Init()
@@ -410,9 +397,6 @@ BOOL CCore::Init()
 
     TRACE0("内核初始化成功\n");
     
-    // ── 崩溃恢复：重置风扇为自动模式 ──
-    // 如果上次进程异常退出（崩溃/强杀），EC 可能留在手动转速。
-    // 在接管控制前先归还 BIOS，避免上一轮残留状态导致散热异常。
     if (m_pfnSetFANDutyAuto != NULL)
     {
         int fanCount = 2;
@@ -429,13 +413,15 @@ BOOL CCore::Init()
 void CCore::Uninit()
 {
     ResetFan();
-    m_hInstDLL.Close();  // RAII 自动 FreeLibrary
+    m_hInstDLL.Close();
     m_nInit = 0;
 }
 
 void CCore::Run()
 {
+    EnterCriticalSection(&m_csConfig);
     m_config.LoadConfig();
+    LeaveCriticalSection(&m_csConfig);
     
     if (!m_nInit)
         Init();
@@ -444,19 +430,25 @@ void CCore::Run()
     {
         TRACE0("内核开始运行\n");
         int curtime;
-        int ecRefreshTick = 0;  // EC刷新循环计数器（每10次=~1秒）
+        int ecRefreshTick = 0;
         while (!m_nExit)
         {
             curtime = GetTime();
             
-            // 午夜回绕保护
             if (m_nNextCheckTime > 0 && curtime < m_nNextCheckTime - MIDNIGHT_GUARD_MS)
                 m_bForcedRefresh = TRUE;
+            
+            BOOL  bTakeOver;
+            int   nUpdateInterval;
+            EnterCriticalSection(&m_csConfig);
+            bTakeOver = m_config.TakeOver;
+            nUpdateInterval = m_config.UpdateInterval;
+            LeaveCriticalSection(&m_csConfig);
             
             if (++ecRefreshTick >= EC_REFRESH_TICKS)
             {
                 ecRefreshTick = 0;
-                if (m_config.TakeOver && m_bTakeOverStatus)
+                if (bTakeOver && m_bTakeOverStatus)
                     SetFanDuty();
             }
             
@@ -464,7 +456,7 @@ void CCore::Run()
             {
                 Work();
                 m_nLastUpdateTime = curtime;
-                m_nNextCheckTime = GetTime(NULL, m_config.UpdateInterval);
+                m_nNextCheckTime = GetTime(NULL, nUpdateInterval);
                 m_bForcedRefresh = FALSE;
                 
                 if (!m_bSetPriority)
@@ -476,10 +468,6 @@ void CCore::Run()
             Sleep(100);
         }
         TRACE0("内核结束运行\n");
-        
-        // ── 安全退出：恢复风扇自动控制 ──
-        // 必须在 Run() 内部调用而非依赖析构函数，
-        // 确保在任何退出路径（正常退出/异常退出）都能归还 BIOS 控制权
         ResetFan();
     }
     m_nExit = 2;
@@ -489,9 +477,13 @@ void CCore::Work()
 {
     Update();
     CheckTempWarning();
-    VerifyAndReclaim();  // EC 接管检测与夺回
+    VerifyAndReclaim();
     
-    // 强冷模式处理：一直满转直到用户手动关闭
+    CConfig cfgSnap;
+    EnterCriticalSection(&m_csConfig);
+    cfgSnap = m_config;
+    LeaveCriticalSection(&m_csConfig);
+    
     if (m_bForcedCooling)
     {
         m_nSetDuty[0] = FORCED_COOLING_DUTY;
@@ -502,19 +494,13 @@ void CCore::Work()
         return;
     }
     
-    // 根据控制模式选择控制策略
-    if (m_config.TakeOver)
-    {
-        Control();
-    }
+    if (cfgSnap.TakeOver)
+        Control(cfgSnap);
     else
-    {
         ResetFan();
-    }
 
-    // GPU 频率控制
-    if (m_config.LockGPUFrequency)
-        m_GpuInfo.LockFrequency(m_config.GPUFrequency);
+    if (cfgSnap.LockGPUFrequency)
+        m_GpuInfo.LockFrequency(cfgSnap.GPUFrequency);
     else
         m_GpuInfo.LockFrequency(0);
 }
@@ -528,7 +514,6 @@ void CCore::Update()
     {
         data = m_pfnGetTempFanDuty(i + 1);
         
-        // 温度异常检测
         if (abs(data.Remote - this->m_nCurTemp[i]) > 30)
         {
             if (TempErr++ == 0)
@@ -564,20 +549,20 @@ void CCore::Update()
         m_GpuInfo.Update();
 }
 
-void CCore::Control()
+void CCore::Control(const CConfig& cfg)
 {
-    switch (m_config.ControlMode)
+    switch (cfg.ControlMode)
     {
-    case 0: // 自动模式
-        if (m_config.Linear)
-            CalcLinearDuty();
+    case 0:
+        if (cfg.Linear)
+            CalcLinearDuty(cfg);
         else
-            CalcStdDuty();
+            CalcStdDuty(cfg);
         break;
-    case 1: // 手动模式
-        CalcManualDuty();
+    case 1:
+        CalcManualDuty(cfg);
         break;
-    case 2: // 强冷模式
+    case 2:
         m_nSetDuty[0] = FORCED_COOLING_DUTY;
         m_nSetDuty[1] = FORCED_COOLING_DUTY;
         m_nSetDutyLevel[0] = 10;
@@ -588,26 +573,25 @@ void CCore::Control()
     SetFanDuty();
 }
 
-void CCore::CalcLinearDuty()
+void CCore::CalcLinearDuty(const CConfig& cfg)
 {
     int duty, dl;
 
     for (int i = 0; i < 2; i++)
     {
-        // 温度上升时立即响应，下降时需要迟滞
         m_nLastTemp[i] = max(m_nLastTemp[i], m_nCurTemp[i]);
-        m_nLastTemp[i] = min(m_nLastTemp[i], m_nCurTemp[i] + m_config.TransitionTemp);
+        m_nLastTemp[i] = min(m_nLastTemp[i], m_nCurTemp[i] + cfg.TransitionTemp);
 
         int j = m_nLastTemp[i];
 
         if (j < 45)
         {
-            duty = m_config.DutyList[i][TEMP_LEVELS - 1];
+            duty = cfg.DutyList[i][TEMP_LEVELS - 1];
             dl = 0;
         }
         else if (j >= 90)
         {
-            duty = m_config.DutyList[i][0];
+            duty = cfg.DutyList[i][0];
             dl = TEMP_LEVELS;
         }
         else
@@ -625,23 +609,21 @@ void CCore::CalcLinearDuty()
 
             int temp_l = TEMP_LIST[idx + 1];
             int temp_h = TEMP_LIST[idx];
-            int duty_l = m_config.DutyList[i][idx + 1];
-            int duty_h = m_config.DutyList[i][idx];
+            int duty_l = cfg.DutyList[i][idx + 1];
+            int duty_h = cfg.DutyList[i][idx];
             
-            // 线性插值
             duty = int((duty_h - duty_l) / double(temp_h - temp_l) * (j - temp_l) + 0.5) + duty_l;
             dl = TEMP_LEVELS - idx;
         }
         
-        // 应用最大转速限制
-        duty = min(duty, m_config.MaxDutyLimit);
+        duty = min(duty, cfg.MaxDutyLimit);
         
         m_nSetDuty[i] = duty;
         m_nSetDutyLevel[i] = dl;
     }
 }
 
-void CCore::CalcStdDuty()
+void CCore::CalcStdDuty(const CConfig& cfg)
 {
     int dl;
     int last_dl;
@@ -659,7 +641,7 @@ void CCore::CalcStdDuty()
             {
                 break;
             }
-            else if (j < TEMP_LIST[k] - m_config.TransitionTemp)
+            else if (j < TEMP_LIST[k] - cfg.TransitionTemp)
             {
                 continue;
             }
@@ -674,20 +656,18 @@ void CCore::CalcStdDuty()
         }
         k = min(TEMP_LEVELS - 1, k);
         
-        // 应用最大转速限制
-        int duty = min(m_config.DutyList[i][k], m_config.MaxDutyLimit);
+        int duty = min(cfg.DutyList[i][k], cfg.MaxDutyLimit);
         
         m_nSetDuty[i] = duty;
         m_nSetDutyLevel[i] = dl;
     }
 }
 
-void CCore::CalcManualDuty()
+void CCore::CalcManualDuty(const CConfig& cfg)
 {
     for (int i = 0; i < 2; i++)
     {
-        // 手动模式直接使用设定的转速，但也要受最大限制约束
-        int duty = min(m_config.ManualDuty[i], m_config.MaxDutyLimit);
+        int duty = min(cfg.ManualDuty[i], cfg.MaxDutyLimit);
         m_nSetDuty[i] = duty;
         m_nSetDutyLevel[i] = duty / 10;
     }
@@ -706,7 +686,6 @@ void CCore::ResetFan()
         m_nLastSetDutyEC[0] = 0;
         m_nLastSetDutyEC[1] = 0;
         
-        // 重置平滑追踪，下次接管时从0开始平滑过渡
         m_nSmoothedDuty[0] = 0;
         m_nSmoothedDuty[1] = 0;
     }
@@ -725,15 +704,12 @@ void CCore::VerifyAndReclaim()
         ECData data = m_pfnGetTempFanDuty(i + 1);
         int curDutyEC = int(data.FanDuty);
         
-        // ── 写后验证：比较 EC 实际 duty 与我们最后写入的 duty ──
-        // 偏差 > EC_TAKEOVER_THRESHOLD（15%）说明 BIOS 已接管
         int deviation = abs(curDutyEC - m_nLastSetDutyEC[i]);
         if (deviation > EC_FAN_DUTY_MAX * EC_TAKEOVER_THRESHOLD / 100)
         {
             m_bEcTakeoverFlag = TRUE;
             m_nEcTakeoverCount++;
             
-            // 立即夺回控制权
             m_pfnSetFanDuty(i + 1, m_nLastSetDutyEC[i]);
             
             TRACE1("EC 接管检测 #%d: 风扇%d 写入=%d 实际=%d，已夺回\n",
@@ -747,7 +723,6 @@ void CCore::SetFanDuty()
     if (m_pfnSetFanDuty == NULL)
         return;
 
-    // 获取实际风扇数量（蓝天模具通常 2-3 个）
     int fanCount = 2;
     if (m_pfnGetFANCounter)
         fanCount = max(2, m_pfnGetFANCounter());
@@ -755,7 +730,7 @@ void CCore::SetFanDuty()
     int duty;
     for (int i = 0; i < fanCount; i++)
     {
-        int targetDuty = (i < 2) ? m_nSetDuty[i] : m_nSetDuty[1]; // 第3+个风扇跟随GPU
+        int targetDuty = (i < 2) ? m_nSetDuty[i] : m_nSetDuty[1];
         
         if (i < 2)
         {
@@ -775,30 +750,33 @@ void CCore::SetFanDuty()
         }
         
         m_pfnSetFanDuty(i + 1, duty);
-        if (i < 2) m_nLastSetDutyEC[i] = duty;  // 记录写入值用于接管检测
+        if (i < 2) m_nLastSetDutyEC[i] = duty;
     }
     m_bTakeOverStatus = TRUE;
 }
 
-// ==================== 新增功能实现 ====================
-
 void CCore::EnableForcedCooling(BOOL enable)
 {
+    EnterCriticalSection(&m_csConfig);
     m_bForcedCooling = enable;
     if (enable)
     {
         m_config.ControlMode = 2;
     }
+    LeaveCriticalSection(&m_csConfig);
 }
 
 void CCore::SetMaxDutyLimit(int limit)
 {
+    EnterCriticalSection(&m_csConfig);
     m_config.MaxDutyLimit = max(0, min(100, limit));
+    LeaveCriticalSection(&m_csConfig);
     m_config.SaveConfig();
 }
 
 void CCore::SetControlMode(int mode)
 {
+    EnterCriticalSection(&m_csConfig);
     m_config.ControlMode = mode;
     if (mode == 2)
     {
@@ -808,6 +786,7 @@ void CCore::SetControlMode(int mode)
     {
         m_bForcedCooling = FALSE;
     }
+    LeaveCriticalSection(&m_csConfig);
 }
 
 BOOL CCore::CheckTempWarning()
@@ -817,12 +796,11 @@ BOOL CCore::CheckTempWarning()
         if (!m_bTempWarning)
         {
             m_bTempWarning = TRUE;
-            // 托盘气泡告警
             if (m_hWnd)
             {
                 NOTIFYICONDATA nid = { sizeof(nid) };
                 nid.hWnd = m_hWnd;
-                nid.uID = IDR_MAINFRAME;  // 使用主托盘图标ID（已注册），非独立ID
+                nid.uID = IDR_MAINFRAME;
                 nid.uFlags = NIF_INFO;
                 nid.dwInfoFlags = NIIF_WARNING;
                 sprintf_s(nid.szInfo, 256, "CPU: %d°C / GPU: %d°C - 温度过高！", 
@@ -842,9 +820,10 @@ BOOL CCore::CheckTempWarning()
 
 void CCore::ApplyPreset(const char* presetName)
 {
+    EnterCriticalSection(&m_csConfig);
+    
     if (strcmp(presetName, "Silent") == 0)
     {
-        // 静音模式预设（使用绝对曲线，避免重复应用累积退化）
         int silentCurve[TEMP_LEVELS] = {60, 55, 45, 35, 25, 20, 15, 12, 10, 8};
         m_config.MaxDutyLimit = 60;
         m_config.TransitionTemp = 5;
@@ -856,10 +835,8 @@ void CCore::ApplyPreset(const char* presetName)
     }
     else if (strcmp(presetName, "Performance") == 0)
     {
-        // 性能模式预设
         m_config.MaxDutyLimit = 100;
         m_config.TransitionTemp = 2;
-        // 更激进的曲线
         int perfCurve[TEMP_LEVELS] = {100, 95, 85, 75, 65, 55, 45, 35, 25, 20};
         for (int i = 0; i < TEMP_LEVELS; i++)
         {
@@ -869,9 +846,10 @@ void CCore::ApplyPreset(const char* presetName)
     }
     else if (strcmp(presetName, "Balanced") == 0)
     {
-        // 平衡模式（默认）
         LoadDefault();
     }
+    
+    LeaveCriticalSection(&m_csConfig);
     
     m_config.SaveConfig();
     m_bForcedRefresh = TRUE;
