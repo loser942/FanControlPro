@@ -281,8 +281,9 @@ if (m_core.m_nInit != 1)
          
          if (WaitForSingleObject(m_hCoreThread, 5000) == WAIT_TIMEOUT)
          {
-             // 线程卡死：不 ResetFan（线程可能仍在访问 EC），进程退出时 OS 回收句柄
+             // 线程卡死：ExitProcess 原子退出，避免窗口销毁后线程仍访问 this
              MessageBox("检测到核心线程异常，程序将退出。");
+             ExitProcess(1);
          }
          else
          {

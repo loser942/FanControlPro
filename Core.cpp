@@ -61,8 +61,18 @@ CString GetExePath()
 // ==================== CGPUInfo 实现 ====================
 
 CGPUInfo::CGPUInfo()
-{
-    CString dllpth = GetExePath() + "\\NVGPU_DLL.dll";
+ {
++    // ── 所有成员初始化兜底（DLL 加载失败时也要有合法值）──
++    m_nMaxFrequency      = 0;
++    m_nStandardFrequency = 0;
++    m_nGraphicsClock     = 0;
++    m_nMemoryClock       = 0;
++    m_nUsage             = 0;
++    m_nLockClock         = -1;
++    m_nBaseClock         = 0;
++    m_nBoostClock        = 0;
++    
+     CString dllpth = GetExePath() + "\\NVGPU_DLL.dll";
     if (!m_hGPUdll.Load(dllpth))
     {
         TRACE0("无法加载 NVGPU_DLL.dll\n");
@@ -94,8 +104,10 @@ HMODULE hDll = m_hGPUdll.Get();
      m_pfnSet_CoreOC         = (In_2_Out_n_Func *)::GetProcAddress(hDll, "Set_CoreOC");
      m_pfnSet_MEMOC          = (In_2_Out_n_Func *)::GetProcAddress(hDll, "Set_MEMOC");
      m_pfnCloseGPU_API       = (In_0_Out_0_Func *)::GetProcAddress(hDll, "CloseGPU_API");
-     // ── DLL 安全检查：关键函数缺失则优雅降级 ──
-     if (!m_pfnInitGPU_API || !m_pfnCheck_GPU_VRAM_Clock || !m_pfnCloseGPU_API)
+     // ── DLL 安全检查：所有调用路径上的函数指针必须非空 ──
+     if (!m_pfnInitGPU_API || !m_pfnCheck_GPU_VRAM_Clock || !m_pfnCloseGPU_API ||
+         !m_pfnGet_GPU_Graphics_Clock || !m_pfnGet_GPU_Memory_Clock || !m_pfnGet_GPU_Util ||
+         !m_pfnSet_CoreOC || !m_pfnSet_MEMOC || !m_pfnLock_Frequency || !m_pfnLock_Frequency_MEM)
      {
          TRACE0("NVGPU_DLL.dll 缺少必需的导出函数，GPU 功能不可用\n");
          m_hGPUdll.Close();
