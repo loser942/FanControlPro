@@ -45,6 +45,8 @@
 
 | 版本 | 改进内容 |
 |------|---------|
+| **v16** | 🛡️ m_pfnGetTempFanDuty NULL 检查：Init() 拒绝初始化 + Update() 调用前防御 return，消除最后一个 DLL 函数指针空调用风险 |
+| **v15** | 🔥 v14 编译错误热修复：LoadConfig 缺 `}` / SaveConfig 多 `)` / OnTimer 死代码清理 |
 | **v14** | 🐛 OP 审查 7 项修复：OnInitDialog 签名 void→BOOL、TRACE1 参数溢出→TRACE、m_bForcedCooling 加锁快照、计数器误判修复、OnOK 防 UAF、fwrite/fread 返回值检查、GetBuffer 补 ReleaseBuffer |
 | **v13** | 🛡️ 稳定性加固：CGPUInfo DLL 关键函数 NULL 检查防崩溃（`InitGPU_API`/`Check_GPU_VRAM_Clock`/`CloseGPU_API`）、线程超时后不 CloseHandle 不 ResetFan 防退出竞态 |
 | **v12** | 🐛 5 项关键修复：配置序列化 Bug（offsetof 含 ConfigPath 导致从未保存配置，v2 格式修复）、窗口恢复（m_bForceHideWindow=FALSE）、强冷退出重置 ControlMode、XML 声明改 UTF-8、注册表 REG_SZ 含 null+字节数、CPU 使用率显示、菜单句柄泄漏 |
