@@ -108,7 +108,7 @@ BEGIN_MESSAGE_MAP(CFanControlProDlg, CDialogEx)
     ON_MESSAGE(WM_SHOWTASK, &CFanControlProDlg::OnShowTask)
 END_MESSAGE_MAP()
 
-BOOL CFanControlProDlg::OnInitDialog()
+void CFanControlProDlg::OnInitDialog()
  {
      CDialogEx::OnInitDialog();
 
@@ -123,46 +123,50 @@ BOOL CFanControlProDlg::OnInitDialog()
      }
 
      CMenu* pSysMenu = GetSystemMenu(FALSE);
-    if (pSysMenu != NULL)
-    {
-        CString strAboutMenu;
-        strAboutMenu.LoadString(IDS_ABOUTBOX);
-        if (!strAboutMenu.IsEmpty())
-        {
-            pSysMenu->AppendMenu(MF_SEPARATOR);
-            pSysMenu->AppendMenu(MF_STRING, IDM_ABOUTBOX, strAboutMenu);
-        }
-    }
-    SetIcon(m_hIcon, TRUE);
-    SetIcon(m_hIcon, FALSE);
-    CRect rect;
-    this->GetWindowRect(rect);
-    m_nWindowSize[0] = rect.Width();
-    m_nWindowSize[1] = rect.Height();
-    m_ctlMode.AddString("自动模式");
-    m_ctlMode.AddString("手动模式");
-    m_ctlMode.AddString("强冷模式");
-    m_ctlMode.SetCurSel(0);
-    m_ctlCpuFanSlider.SetRange(0, 100);
-    m_ctlCpuFanSlider.SetPos(50);
-    m_ctlGpuFanSlider.SetRange(0, 100);
-    m_ctlGpuFanSlider.SetPos(50);
-    m_ctlMaxDutySlider.SetRange(50, 100);
-    m_ctlMaxDutySlider.SetPos(85);
-    m_ctlMaxDutyEdit.SetWindowText("85");
-    m_ctlCpuTempProgress.SetRange(0, 100);
-    m_ctlGpuTempProgress.SetRange(0, 100);
-    SetTray("FanControl Pro - 智能风扇控制");
-    if (m_hCoreThread == NULL)
-    {
-        m_core.SetHWnd(this->m_hWnd);
-        DWORD dwThreadID = 0;
-        m_hCoreThread = CreateThread(NULL, NULL, CoreThread, this, NULL, &dwThreadID);
-    }
-    SetTimer(0, 100, NULL);
-    m_ctlAutorun.SetCheck(SetAutorunReg(FALSE) || SetAutorunTask(FALSE));
-    return TRUE;
-}
+     if (pSysMenu != NULL)
+     {
+         CString strAboutMenu;
+         strAboutMenu.LoadString(IDS_ABOUTBOX);
+         if (!strAboutMenu.IsEmpty())
+         {
+             pSysMenu->AppendMenu(MF_SEPARATOR);
+             pSysMenu->AppendMenu(MF_STRING, IDM_ABOUTBOX, strAboutMenu);
+         }
+     }
+     SetIcon(m_hIcon, TRUE);
+     SetIcon(m_hIcon, FALSE);
+     CRect rect;
+     this->GetWindowRect(rect);
+     m_nWindowSize[0] = rect.Width();
+     m_nWindowSize[1] = rect.Height();
+     m_ctlMode.AddString("自动模式");
+     m_ctlMode.AddString("手动模式");
+     m_ctlMode.AddString("强冷模式");
+     m_ctlMode.SetCurSel(0);
+     m_ctlCpuFanSlider.SetRange(0, 100);
+     m_ctlCpuFanSlider.SetPos(50);
+     m_ctlGpuFanSlider.SetRange(0, 100);
+     m_ctlGpuFanSlider.SetPos(50);
+     m_ctlMaxDutySlider.SetRange(50, 100);
+     m_ctlMaxDutySlider.SetPos(85);
+     m_ctlMaxDutyEdit.SetWindowText("85");
+     m_ctlCpuTempProgress.SetRange(0, 100);
+     m_ctlGpuTempProgress.SetRange(0, 100);
+     SetTray("FanControl Pro - 智能风扇控制");
+     if (m_hCoreThread == NULL)
+     {
+         m_core.SetHWnd(this->m_hWnd);
+         DWORD dwThreadID = 0;
+         m_hCoreThread = CreateThread(NULL, NULL, CoreThread, this, NULL, &dwThreadID);
+     }
+     SetTimer(0, 100, NULL);
+     m_ctlAutorun.SetCheck(SetAutorunReg(FALSE) || SetAutorunTask(FALSE));
+
+     // ── 窗口初始化完成后允许正常显示 ──
+     m_bForceHideWindow = FALSE;
+
+     return TRUE;
+ }
 
 void CFanControlProDlg::OnSysCommand(UINT nID, LPARAM lParam)
 {
@@ -331,9 +335,13 @@ void CFanControlProDlg::UpdateGui(BOOL bFull)
     {
         m_ctlGpuRpmText.SetWindowText("GPU RPM: --");
     }
-    sprintf_s(str, "GPU: %d%%", m_core.m_GpuInfo.m_nUsage);
-    m_ctlGpuUsageText.SetWindowText(str);
-    
+// GPU 使用率
+     sprintf_s(str, "GPU: %d%%", m_core.m_GpuInfo.m_nUsage);
+     m_ctlGpuUsageText.SetWindowText(str);
+     
+     // CPU 使用率（占位，MFC 无内建 CPU 使用率 API，显示 CPU 温度代替）
+     sprintf_s(str, "CPU: %d°C", m_core.m_nCurTemp[0]);
+     m_ctlCpuUsageText.SetWindowText(str);
     int nControlMode, nManualDuty0, nManualDuty1;
     m_core.LockConfig();
     nControlMode = m_core.m_config.ControlMode;
@@ -505,8 +513,8 @@ LRESULT CFanControlProDlg::OnShowTask(WPARAM wParam, LPARAM lParam)
         if (xx == IDR_SHOW) OnCancel();
         else if (xx == IDR_FORCED) m_core.EnableForcedCooling(!m_core.m_bForcedCooling);
         else if (xx == IDR_EXIT) OnOK();
-        HMENU hmenu = menu.Detach();
-        menu.DestroyMenu();
+HMENU hmenu = menu.Detach();
+         if (hmenu) DestroyMenu(hmenu);
         delete lpoint;
     }break;
     case WM_LBUTTONDBLCLK:
@@ -545,6 +553,12 @@ void CFanControlProDlg::OnBnClickedCheckForce()
      {
          m_ctlMode.SetCurSel(2);
          m_core.m_config.ControlMode = 2;
+     }
+     else
+     {
+         // 取消强冷时恢复到自动模式
+         m_ctlMode.SetCurSel(0);
+         m_core.m_config.ControlMode = 0;
      }
      m_core.UnlockConfig();
  }
@@ -668,11 +682,12 @@ BOOL CFanControlProDlg::SetAutorunReg(BOOL bWrite, BOOL bAutorun)
     PCSTR strProduct = "FanControlPro";
     if (bWrite)
     {
-        if (bAutorun)
-        {
-            CString strPath = GetExePath() + "\\FanControlPro.exe";
-            unsigned long nSize = strPath.GetLength();
-            if (RegSetValueEx(hKey, strProduct, 0, REG_SZ,
+if (bAutorun)
+         {
+             CString strPath = GetExePath() + "\\FanControlPro.exe";
+             // REG_SZ 需要包含结尾 \0 的字节数
+             unsigned long nSize = (strPath.GetLength() + 1) * sizeof(TCHAR);
+             if (RegSetValueEx(hKey, strProduct, 0, REG_SZ,
                 (unsigned char *)strPath.GetBuffer(nSize), nSize) != ERROR_SUCCESS)
             {
                 RegCloseKey(hKey);
@@ -765,7 +780,7 @@ while (true)
 BOOL CFanControlProDlg::CreateTaskXml(PCSTR strXmlPath, PCSTR strTargetPath)
 {
     PCSTR XmlStr = 
-"<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n"
+"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
 "<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\r\n"
 "  <RegistrationInfo>\r\n"
 "    <Author>FanControlPro</Author>\r\n"

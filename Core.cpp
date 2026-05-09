@@ -219,94 +219,91 @@ void CConfig::LoadDefault()
 }
 
 #define CONFIG_MAGIC 0x46504346
-#define CONFIG_VERSION 1
+ #define CONFIG_VERSION 2          // v2: 修复序列化偏移量（v1 的 bug 导致配置从未实际保存）
 
-void CConfig::LoadConfig()
-{
-    FILE *fp = fopen(ConfigPath, "rb");
-    if (fp == NULL)
-    {
-        SaveConfig();
-        return;
-    }
-    int header[2] = {0};
-    if (fread(header, sizeof(header), 1, fp) != 1 ||
-        header[0] != CONFIG_MAGIC || header[1] != CONFIG_VERSION)
-    {
-        fclose(fp);
-        LoadDefault();
-        SaveConfig();
-        return;
-    }
-    const size_t configDataOffset = offsetof(CConfig, ConfigPath) + sizeof(ConfigPath);
-    const size_t configDataSize = sizeof(*this) - configDataOffset;
-    if (fread(reinterpret_cast<char*>(this) + configDataOffset, configDataSize, 1, fp) != 1)
-    {
-        fclose(fp);
-        LoadDefault();
-        SaveConfig();
-        return;
-    }
-    fclose(fp);
-}
+ void CConfig::LoadConfig()
+ {
+     FILE *fp = fopen(ConfigPath, "rb");
+     if (fp == NULL)
+     {
+         SaveConfig();
+         return;
+     }
+     int header[2] = {0};
+     if (fread(header, sizeof(header), 1, fp) != 1 ||
+         header[0] != CONFIG_MAGIC || header[1] != CONFIG_VERSION)
+     {
+         fclose(fp);
+         LoadDefault();
+         SaveConfig();
+         return;
+     }
+     // 序列化 ConfigPath 之前的所有配置字段
+     const size_t configDataSize = offsetof(CConfig, ConfigPath);
+     if (fread(reinterpret_cast<char*>(this), configDataSize, 1, fp) != 1)
+     {
+         fclose(fp);
+         LoadDefault();
+         SaveConfig();
+         return;
+     }
+     fclose(fp);
+ }
 
-void CConfig::SaveConfig()
-{
-    FILE *fp = fopen(ConfigPath, "wb");
-    if (fp == NULL)
-    {
-        AfxMessageBox("无法写入配置文件");
-        return;
-    }
-    int header[2] = { CONFIG_MAGIC, CONFIG_VERSION };
-    fwrite(header, sizeof(header), 1, fp);
-    const size_t configDataOffset = offsetof(CConfig, ConfigPath) + sizeof(ConfigPath);
-    const size_t configDataSize = sizeof(*this) - configDataOffset;
-    fwrite(reinterpret_cast<char*>(this) + configDataOffset, configDataSize, 1, fp);
-    fclose(fp);
-}
+ void CConfig::SaveConfig()
+ {
+     FILE *fp = fopen(ConfigPath, "wb");
+     if (fp == NULL)
+     {
+         AfxMessageBox("无法写入配置文件");
+         return;
+     }
+     int header[2] = { CONFIG_MAGIC, CONFIG_VERSION };
+     fwrite(header, sizeof(header), 1, fp);
+     const size_t configDataSize = offsetof(CConfig, ConfigPath);
+     fwrite(reinterpret_cast<char*>(this), configDataSize, 1, fp);
+     fclose(fp);
+ }
 
-void CConfig::ExportConfig(PCSTR path) const
-{
-    FILE *fp = fopen(path, "wb");
-    if (fp == NULL)
-    {
-        AfxMessageBox("无法打开导出路径");
-        return;
-    }
-    int header[2] = { CONFIG_MAGIC, CONFIG_VERSION };
-    fwrite(header, sizeof(header), 1, fp);
-    const size_t offset = offsetof(CConfig, ConfigPath) + sizeof(ConfigPath);
-    const size_t dataSize = sizeof(*this) - offset;
-    fwrite(reinterpret_cast<const char*>(this) + offset, dataSize, 1, fp);
-    fclose(fp);
-}
+ void CConfig::ExportConfig(PCSTR path) const
+ {
+     FILE *fp = fopen(path, "wb");
+     if (fp == NULL)
+     {
+         AfxMessageBox("无法打开导出路径");
+         return;
+     }
+     int header[2] = { CONFIG_MAGIC, CONFIG_VERSION };
+     fwrite(header, sizeof(header), 1, fp);
+     const size_t dataSize = offsetof(CConfig, ConfigPath);
+     fwrite(reinterpret_cast<const char*>(this), dataSize, 1, fp);
+     fclose(fp);
+ }
 
-void CConfig::ImportConfig(PCSTR path)
-{
-    FILE *fp = fopen(path, "rb");
-    if (fp == NULL)
-    {
-        AfxMessageBox("无法打开导入文件，请检查路径");
-        return;
-    }
-    int header[2] = {0};
-    if (fread(header, sizeof(header), 1, fp) != 1 ||
-        header[0] != CONFIG_MAGIC || header[1] != CONFIG_VERSION)
-    {
-        fclose(fp);
-        AfxMessageBox("配置文件格式不匹配或版本不兼容，导入失败");
-        return;
-    }
-    const size_t offset = offsetof(CConfig, ConfigPath) + sizeof(ConfigPath);
-    const size_t dataSize = sizeof(*this) - offset;
-    if (fread(reinterpret_cast<char*>(this) + offset, dataSize, 1, fp) != 1)
-    {
-        AfxMessageBox("配置文件格式不匹配，导入失败");
-        LoadDefault();
-    }
-    fclose(fp);
-}
+ void CConfig::ImportConfig(PCSTR path)
+ {
+     FILE *fp = fopen(path, "rb");
+     if (fp == NULL)
+     {
+         AfxMessageBox("无法打开导入文件，请检查路径");
+         return;
+     }
+     int header[2] = {0};
+     if (fread(header, sizeof(header), 1, fp) != 1 ||
+         header[0] != CONFIG_MAGIC || header[1] != CONFIG_VERSION)
+     {
+         fclose(fp);
+         AfxMessageBox("配置文件格式不匹配或版本不兼容，导入失败");
+         return;
+     }
+     const size_t dataSize = offsetof(CConfig, ConfigPath);
+     if (fread(reinterpret_cast<char*>(this), dataSize, 1, fp) != 1)
+     {
+         AfxMessageBox("配置文件格式不匹配，导入失败");
+         LoadDefault();
+     }
+     fclose(fp);
+ }
 
 // ==================== CCore 实现 ====================
 
@@ -759,15 +756,19 @@ void CCore::SetFanDuty()
 }
 
 void CCore::EnableForcedCooling(BOOL enable)
-{
-    EnterCriticalSection(&m_csConfig);
-    m_bForcedCooling = enable;
-    if (enable)
-    {
-        m_config.ControlMode = 2;
-    }
-    LeaveCriticalSection(&m_csConfig);
-}
+ {
+     EnterCriticalSection(&m_csConfig);
+     m_bForcedCooling = enable;
+     if (enable)
+     {
+         m_config.ControlMode = 2;
+     }
+     else
+     {
+         m_config.ControlMode = 0;  // 退出强冷时恢复自动模式
+     }
+     LeaveCriticalSection(&m_csConfig);
+ }
 
 void CCore::SetMaxDutyLimit(int limit)
 {
