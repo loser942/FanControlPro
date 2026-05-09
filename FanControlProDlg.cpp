@@ -108,7 +108,7 @@ BEGIN_MESSAGE_MAP(CFanControlProDlg, CDialogEx)
     ON_MESSAGE(WM_SHOWTASK, &CFanControlProDlg::OnShowTask)
 END_MESSAGE_MAP()
 
-void CFanControlProDlg::OnInitDialog()
+BOOL CFanControlProDlg::OnInitDialog()
  {
      CDialogEx::OnInitDialog();
 
@@ -236,6 +236,11 @@ void CFanControlProDlg::OnOK()
          {
              Sleep(100);
          }
+         if (m_core.m_nExit == 1)
+         {
+             // 线程未在5s内退出，置空句柄防止 CheckTempWarning 访问已销毁窗口
+             m_core.m_hWnd = NULL;
+         }
      }
      if (m_core.m_nExit)
     {
@@ -265,8 +270,10 @@ void CFanControlProDlg::OnTimer(UINT_PTR nIDEvent)
     {
         OnOK();
     }
-    m_nCheckThreadCount++;
-if (m_nCheckThreadCount > 300)
+if (m_core.m_nInit != 1)
+         return;
+     m_nCheckThreadCount++;
+     if (m_nCheckThreadCount > 300)
      {
          KillTimer(0);
          m_core.m_nExit = 2;
@@ -684,10 +691,13 @@ BOOL CFanControlProDlg::SetAutorunReg(BOOL bWrite, BOOL bAutorun)
 if (bAutorun)
          {
              CString strPath = GetExePath() + "\\FanControlPro.exe";
-             // REG_SZ 需要包含结尾 \0 的字节数
-             unsigned long nSize = (strPath.GetLength() + 1) * sizeof(TCHAR);
-             if (RegSetValueEx(hKey, strProduct, 0, REG_SZ,
-                (unsigned char *)strPath.GetBuffer(nSize), nSize) != ERROR_SUCCESS)
+         // REG_SZ 需要包含结尾 \0 的字节数
+         unsigned long nSize = (strPath.GetLength() + 1) * sizeof(TCHAR);
+         LPTSTR pBuf = strPath.GetBuffer(nSize);
+         LONG lResult = RegSetValueEx(hKey, strProduct, 0, REG_SZ,
+            (const BYTE *)pBuf, nSize);
+         strPath.ReleaseBuffer();
+         if (lResult != ERROR_SUCCESS)
             {
                 RegCloseKey(hKey);
                 return FALSE;

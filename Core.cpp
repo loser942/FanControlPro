@@ -246,15 +246,13 @@ void CConfig::LoadDefault()
      }
      // 序列化 ConfigPath 之前的所有配置字段
      const size_t configDataSize = offsetof(CConfig, ConfigPath);
-     if (fread(reinterpret_cast<char*>(this), configDataSize, 1, fp) != 1)
+     int ok = fread(reinterpret_cast<char*>(this), configDataSize, 1, fp);
+     fclose(fp);
+if (ok != 1)
      {
-         fclose(fp);
          LoadDefault();
          SaveConfig();
-         return;
      }
-     fclose(fp);
- }
 
  void CConfig::SaveConfig()
  {
@@ -265,10 +263,14 @@ void CConfig::LoadDefault()
          return;
      }
      int header[2] = { CONFIG_MAGIC, CONFIG_VERSION };
-     fwrite(header, sizeof(header), 1, fp);
+     int ok1 = fwrite(header, sizeof(header), 1, fp);
      const size_t configDataSize = offsetof(CConfig, ConfigPath);
-     fwrite(reinterpret_cast<char*>(this), configDataSize, 1, fp);
+     int ok2 = fwrite(reinterpret_cast<char*>(this), configDataSize, 1, fp);
      fclose(fp);
+     if (ok1 != 1 || ok2 != 1)
+     {
+         AfxMessageBox("配置文件写入失败，请检查磁盘空间和权限");
+     })
  }
 
  void CConfig::ExportConfig(PCSTR path) const
@@ -485,12 +487,14 @@ void CCore::Work()
     CheckTempWarning();
     VerifyAndReclaim();
     
-    CConfig cfgSnap;
-    EnterCriticalSection(&m_csConfig);
-    cfgSnap = m_config;
-    LeaveCriticalSection(&m_csConfig);
-    
-    if (m_bForcedCooling)
+CConfig cfgSnap;
+     BOOL bForced;
+     EnterCriticalSection(&m_csConfig);
+     cfgSnap = m_config;
+     bForced = m_bForcedCooling;
+     LeaveCriticalSection(&m_csConfig);
+     
+     if (bForced)
     {
         m_nSetDuty[0] = FORCED_COOLING_DUTY;
         m_nSetDutyLevel[0] = 10;
@@ -718,7 +722,7 @@ void CCore::VerifyAndReclaim()
             
             m_pfnSetFanDuty(i + 1, m_nLastSetDutyEC[i]);
             
-            TRACE1("EC 接管检测 #%d: 风扇%d 写入=%d 实际=%d，已夺回\n",
+            TRACE("EC 接管检测 #%d: 风扇%d 写入=%d 实际=%d，已夺回\n",
                    m_nEcTakeoverCount, i, m_nLastSetDutyEC[i], curDutyEC);
         }
     }
