@@ -20,6 +20,8 @@
 | 🛡️ EC 防抢夺 | 独立每秒刷新 + 接管检测自动夺回 |
 | 💥 崩溃安全 | 异常退出后启动时自动归还 BIOS 控制权 |
 | 🔍 写后验证 | 读取 EC 实际 duty 对比写入值，偏差 >15% 自动夺回 |
+| 🔐 线程安全 | CRITICAL_SECTION 锁护 m_config 跨线程访问，热路径快照隔离 |
+| 🔒 单实例 | CreateMutex 互斥，防止多进程争抢 EC |
 | 🎨 Win11 UI | 温度进度条、实时 RPM 显示、托盘告警 |
 | 🚀 开机自启 | 注册表 + 任务计划双保险 |
 | ⚡ 预设切换 | 静音/性能/平衡一键切换 |
@@ -43,6 +45,8 @@
 
 | 版本 | 改进内容 |
 |------|---------|
+| **v11** | 🔒 5 项安全加固：退出事件信号替代 Sleep+TerminateThread（防死锁）、单实例互斥、m_bForcedCooling 统一加锁、温度异常最大 2 次重试、ExecuteCmd memset 清零 |
+| **v10** | 🔐 m_config 线程安全：CRITICAL_SECTION 锁护所有跨线程访问，`Work()` 热路径快照隔离，UI 与工作线程零竞争 |
 | **v9** | 🔍 写后验证 + EC 接管检测：读取 EC 实际 duty 对比写入值，偏差 >15% 自动夺回 |
 | **v8** | 🧼 代码净化：`constexpr` 常量替代 `#define`，RAII `DllHandle` 类消除裸 `FreeLibrary`，魔法数字全部具名常量化 |
 | **v7** | 🐛 修复 4 个 Bug：Silent 预设累积退化、GetExePath 边界检查、告警 ID 修正、配置文件版本魔数；3 项风险：午夜回绕保护、RPM 间隙值标记 |
