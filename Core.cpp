@@ -398,7 +398,8 @@ BOOL CCore::Init()
     m_pfnGetFANRPM[0] = (GetFanRpm *)::GetProcAddress(hDll, "GetCpuFanRpm");
     m_pfnGetFANRPM[1] = (GetFanRpm *)::GetProcAddress(hDll, "GetGpuFanRpm");
 
-    if (m_pfnInitIo == NULL || m_pfnInitIo() != 1)
+    if (m_pfnInitIo == NULL || m_pfnInitIo() != 1 ||
+         m_pfnGetTempFanDuty == NULL)
     {
         m_hInstDLL.Close();
         AfxMessageBox("EC 接口初始化失败");
@@ -518,8 +519,9 @@ CConfig cfgSnap;
 }
 
 void CCore::Update()
-{
-    ECData data;
+ {
+    if (!m_pfnGetTempFanDuty) return;
+     ECData data;
     int TempErr = 0;
     
     for (int i = 0; i < 2; i++)
