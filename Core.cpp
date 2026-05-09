@@ -69,39 +69,45 @@ CGPUInfo::CGPUInfo()
         return;
     }
 
-    HMODULE hDll = m_hGPUdll.Get();
-    // 加载函数指针
-    m_pfnInitGPU_API          = (In_0_Out_n_Func *)::GetProcAddress(hDll, "InitGPU_API");
-    m_pfnSet_GPU_Number       = (In_1_Out_n_Func *)::GetProcAddress(hDll, "Set_GPU_Number");
-    m_pfnGet_GPU_Base_Clock   = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Base_Clock");
-    m_pfnGet_GPU_Boost_Clock  = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Boost_Clock");
-    m_pfnCheck_GPU_VRAM_Clock = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Check_GPU_VRAM_Clock");
-    m_pfnGet_GPU_Graphics_Clock = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Graphics_Clock");
-    m_pfnGet_GPU_Memory_Clock = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Memory_Clock");
-    m_pfnGet_Memory_OC_max    = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_Memory_OC_max");
-    m_pfnGet_GPU_Util         = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Util");
-    m_pfnGet_GPU_name         = (In_0_Out_s_Func *)::GetProcAddress(hDll, "Get_GPU_name");
-    m_pfnGet_GPU_TotalNumber  = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_TotalNumber");
-    m_pfnGet_GPU_Overclock_range  = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Overclock_range");
-    m_pfnGet_Memory_range         = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_Memory_range");
-    m_pfnGet_GPU_Overclock_rangeMax  = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Overclock_rangeMax");
-    m_pfnGet_GPU_Overclock_rangeMin  = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Overclock_rangeMin");
-    m_pfnGet_Memory_range_max   = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_Memory_range_max");
-    m_pfnGet_Memory_range_min   = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_Memory_range_min");
-    m_pfnGet_NVDeviceID     = (In_1_Out_n_Func *)::GetProcAddress(hDll, "Get_NVDeviceID");
-    m_pfnLock_Frequency     = (In_2_Out_n_Func *)::GetProcAddress(hDll, "Lock_Frequency");
-    m_pfnLock_Frequency_MEM = (In_2_Out_n_Func *)::GetProcAddress(hDll, "Lock_Frequency_MEM");
-    m_pfnSet_CoreOC         = (In_2_Out_n_Func *)::GetProcAddress(hDll, "Set_CoreOC");
-    m_pfnSet_MEMOC          = (In_2_Out_n_Func *)::GetProcAddress(hDll, "Set_MEMOC");
-    m_pfnCloseGPU_API       = (In_0_Out_0_Func *)::GetProcAddress(hDll, "CloseGPU_API");
-
-    if (m_pfnInitGPU_API())
-    {
-        TRACE0("InitGPU_API 初始化失败。\n");
-        m_hGPUdll.Close();
-        return;
-    }
-    m_pfnSet_GPU_Number(0);
+HMODULE hDll = m_hGPUdll.Get();
+     // 加载函数指针
+     m_pfnInitGPU_API          = (In_0_Out_n_Func *)::GetProcAddress(hDll, "InitGPU_API");
+     m_pfnSet_GPU_Number       = (In_1_Out_n_Func *)::GetProcAddress(hDll, "Set_GPU_Number");
+     m_pfnGet_GPU_Base_Clock   = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Base_Clock");
+     m_pfnGet_GPU_Boost_Clock  = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Boost_Clock");
+     m_pfnCheck_GPU_VRAM_Clock = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Check_GPU_VRAM_Clock");
+     m_pfnGet_GPU_Graphics_Clock = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Graphics_Clock");
+     m_pfnGet_GPU_Memory_Clock = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Memory_Clock");
+     m_pfnGet_Memory_OC_max    = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_Memory_OC_max");
+     m_pfnGet_GPU_Util         = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Util");
+     m_pfnGet_GPU_name         = (In_0_Out_s_Func *)::GetProcAddress(hDll, "Get_GPU_name");
+     m_pfnGet_GPU_TotalNumber  = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_TotalNumber");
+     m_pfnGet_GPU_Overclock_range  = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Overclock_range");
+     m_pfnGet_Memory_range         = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_Memory_range");
+     m_pfnGet_GPU_Overclock_rangeMax  = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Overclock_rangeMax");
+     m_pfnGet_GPU_Overclock_rangeMin  = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_GPU_Overclock_rangeMin");
+     m_pfnGet_Memory_range_max   = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_Memory_range_max");
+     m_pfnGet_Memory_range_min   = (In_0_Out_n_Func *)::GetProcAddress(hDll, "Get_Memory_range_min");
+     m_pfnGet_NVDeviceID     = (In_1_Out_n_Func *)::GetProcAddress(hDll, "Get_NVDeviceID");
+     m_pfnLock_Frequency     = (In_2_Out_n_Func *)::GetProcAddress(hDll, "Lock_Frequency");
+     m_pfnLock_Frequency_MEM = (In_2_Out_n_Func *)::GetProcAddress(hDll, "Lock_Frequency_MEM");
+     m_pfnSet_CoreOC         = (In_2_Out_n_Func *)::GetProcAddress(hDll, "Set_CoreOC");
+     m_pfnSet_MEMOC          = (In_2_Out_n_Func *)::GetProcAddress(hDll, "Set_MEMOC");
+     m_pfnCloseGPU_API       = (In_0_Out_0_Func *)::GetProcAddress(hDll, "CloseGPU_API");
+     // ── DLL 安全检查：关键函数缺失则优雅降级 ──
+     if (!m_pfnInitGPU_API || !m_pfnCheck_GPU_VRAM_Clock || !m_pfnCloseGPU_API)
+     {
+         TRACE0("NVGPU_DLL.dll 缺少必需的导出函数，GPU 功能不可用\n");
+         m_hGPUdll.Close();
+         return;
+     }
+     if (m_pfnInitGPU_API())
+     {
+         TRACE0("InitGPU_API 初始化失败。\n");
+         m_hGPUdll.Close();
+         return;
+     }
+     m_pfnSet_GPU_Number(0);
     m_nBaseClock = m_pfnGet_GPU_Base_Clock();
     m_nBoostClock = m_pfnGet_GPU_Boost_Clock();
     m_sName = m_pfnGet_GPU_name();

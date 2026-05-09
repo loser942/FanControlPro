@@ -274,10 +274,9 @@ if (m_nCheckThreadCount > 300)
          
          if (WaitForSingleObject(m_hCoreThread, 5000) == WAIT_TIMEOUT)
          {
-             CloseHandle(m_hCoreThread);
-             m_hCoreThread = NULL;
-             m_core.ResetFan();
-             MessageBox("检测到核心线程异常，已强制恢复风扇自动控制。");
+             // 线程卡死：不 CloseHandle 也不 ResetFan（线程可能仍在访问 EC）
+             // 直接结束进程避免更坏的结果
+             MessageBox("检测到核心线程异常，程序将退出。");
          }
          else
          {
