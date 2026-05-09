@@ -109,9 +109,20 @@ BEGIN_MESSAGE_MAP(CFanControlProDlg, CDialogEx)
 END_MESSAGE_MAP()
 
 BOOL CFanControlProDlg::OnInitDialog()
-{
-    CDialogEx::OnInitDialog();
-    CMenu* pSysMenu = GetSystemMenu(FALSE);
+ {
+     CDialogEx::OnInitDialog();
+
+     // ── 单实例互斥 ──
+     HANDLE hMutex = CreateMutex(NULL, TRUE, "FanControlPro_SingleInstance");
+     if (GetLastError() == ERROR_ALREADY_EXISTS)
+     {
+         CloseHandle(hMutex);
+         AfxMessageBox("FanControl Pro 已在运行");
+         ExitProcess(0);
+         return FALSE;
+     }
+
+     CMenu* pSysMenu = GetSystemMenu(FALSE);
     if (pSysMenu != NULL)
     {
         CString strAboutMenu;
@@ -208,18 +219,21 @@ void CFanControlProDlg::OnWindowPosChanging(WINDOWPOS* lpwndpos)
 }
 
 void CFanControlProDlg::OnOK()
-{
-    if (!m_core.m_nExit)
-        m_core.m_nExit = 1;
-    if (m_core.m_nExit == 1)
-    {
-        int count = 0;
-        while (m_core.m_nExit == 1 && count++ < 100)
-        {
-            Sleep(100);
-        }
-    }
-    if (m_core.m_nExit)
+ {
+     if (!m_core.m_nExit)
+     {
+         m_core.m_nExit = 1;
+         m_core.SignalExit();
+     }
+     if (m_core.m_nExit == 1)
+     {
+         int count = 0;
+         while (m_core.m_nExit == 1 && count++ < 50)
+         {
+             Sleep(100);
+         }
+     }
+     if (m_core.m_nExit)
     {
         KillTimer(0);
         SetTray(NULL);
@@ -248,20 +262,26 @@ void CFanControlProDlg::OnTimer(UINT_PTR nIDEvent)
         OnOK();
     }
     m_nCheckThreadCount++;
-    if (m_nCheckThreadCount > 300)
-    {
-        KillTimer(0);
-        m_core.m_nExit = 2;
-        if (WaitForSingleObject(m_hCoreThread, 3000) == WAIT_TIMEOUT)
-        {
-            TerminateThread(m_hCoreThread, -1);
-        }
-        CloseHandle(m_hCoreThread);
-        m_hCoreThread = NULL;
-        m_core.ResetFan();
-        MessageBox("检测到核心线程异常，请检查系统兼容性。");
-        OnOK();
-    }
+if (m_nCheckThreadCount > 300)
+     {
+         KillTimer(0);
+         m_core.m_nExit = 2;
+         m_core.SignalExit();
+         
+         if (WaitForSingleObject(m_hCoreThread, 5000) == WAIT_TIMEOUT)
+         {
+             CloseHandle(m_hCoreThread);
+             m_hCoreThread = NULL;
+             m_core.ResetFan();
+             MessageBox("检测到核心线程异常，已强制恢复风扇自动控制。");
+         }
+         else
+         {
+             CloseHandle(m_hCoreThread);
+             m_hCoreThread = NULL;
+         }
+         OnOK();
+     }
     if (m_core.m_nInit != 1)
         return;
     m_bWindowVisible = IsWindowVisible();
@@ -518,16 +538,16 @@ void CFanControlProDlg::OnBnClickedCheckTakeover()
 }
 
 void CFanControlProDlg::OnBnClickedCheckForce()
-{
-    m_core.m_bForcedCooling = m_ctlForcedCooling.GetCheck();
-    if (m_core.m_bForcedCooling)
-    {
-        m_ctlMode.SetCurSel(2);
-        m_core.LockConfig();
-        m_core.m_config.ControlMode = 2;
-        m_core.UnlockConfig();
-    }
-}
+ {
+     m_core.LockConfig();
+     m_core.m_bForcedCooling = m_ctlForcedCooling.GetCheck();
+     if (m_core.m_bForcedCooling)
+     {
+         m_ctlMode.SetCurSel(2);
+         m_core.m_config.ControlMode = 2;
+     }
+     m_core.UnlockConfig();
+ }
 
 void CFanControlProDlg::OnBnClickedCheckLinear()
 {
@@ -728,10 +748,11 @@ CString CFanControlProDlg::ExecuteCmd(CString str)
     CString output;
     DWORD byteRead;
     int i = 0;
-    while (true)
-    {
-        Sleep(100);
-        if (ReadFile(hRead, buffer, 4095, &byteRead, NULL) == NULL) break;
+while (true)
+     {
+         Sleep(100);
+         memset(buffer, 0, sizeof(buffer));
+         if (ReadFile(hRead, buffer, 4095, &byteRead, NULL) == NULL) break;
         if (byteRead) output += buffer;
         if (i++ >= 50) break;
     }

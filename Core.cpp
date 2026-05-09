@@ -351,17 +351,20 @@ CCore::CCore()
 
     m_nLastSetDutyEC[0] = 0;
     m_nLastSetDutyEC[1] = 0;
-    m_nEcTakeoverCount = 0;
-    m_bEcTakeoverFlag = FALSE;
+m_nEcTakeoverCount = 0;
+     m_bEcTakeoverFlag = FALSE;
 
-    InitializeCriticalSection(&m_csConfig);
-}
+     m_hExitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
-CCore::~CCore()
-{
-    Uninit();
-    DeleteCriticalSection(&m_csConfig);
-}
+     InitializeCriticalSection(&m_csConfig);
+ }
+
+ CCore::~CCore()
+ {
+     Uninit();
+     if (m_hExitEvent) { CloseHandle(m_hExitEvent); m_hExitEvent = NULL; }
+     DeleteCriticalSection(&m_csConfig);
+ }
 
 BOOL CCore::Init()
 {
@@ -464,9 +467,9 @@ void CCore::Run()
                     m_bSetPriority = TRUE;
                     SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
                 }
-            }
-            Sleep(100);
-        }
+}
+             WaitForSingleObject(m_hExitEvent, 100);
+         }
         TRACE0("内核结束运行\n");
         ResetFan();
     }
@@ -513,16 +516,16 @@ void CCore::Update()
     for (int i = 0; i < 2; i++)
     {
         data = m_pfnGetTempFanDuty(i + 1);
-        
-        if (abs(data.Remote - this->m_nCurTemp[i]) > 30)
-        {
-            if (TempErr++ == 0)
-            {
-                Sleep(1000);
-                i--;
-                continue;
-            }
-        }
+// 温度异常检测（最多重试 2 次，防止异常值直接采用）
+         if (abs(data.Remote - this->m_nCurTemp[i]) > 30)
+         {
+             if (TempErr++ < 2)
+             {
+                 Sleep(1000);
+                 i--;
+                 continue;
+             }
+         }
         
         this->m_nLastTemp[i] = this->m_nCurTemp[i];
         this->m_nCurTemp[i] = data.Remote;

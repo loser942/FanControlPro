@@ -210,12 +210,15 @@ public:
     int m_nWarningTemp;
     HWND m_hWnd;
 
-    int m_nLastSetDutyEC[2];
-    int m_nEcTakeoverCount;
-    BOOL m_bEcTakeoverFlag;
+int m_nLastSetDutyEC[2];
+     int m_nEcTakeoverCount;
+     BOOL m_bEcTakeoverFlag;
 
-public:
-    void SetHWnd(HWND hWnd) { m_hWnd = hWnd; }
+     HANDLE m_hExitEvent;
+
+ public:
+     void SetHWnd(HWND hWnd) { m_hWnd = hWnd; }
+     void SignalExit() { SetEvent(m_hExitEvent); }
 
 public:
     BOOL Init();
