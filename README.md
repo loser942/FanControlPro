@@ -45,6 +45,7 @@
 
 | 版本 | 改进内容 |
 |------|---------|
+| **v13** | 🛡️ 稳定性加固：CGPUInfo DLL 关键函数 NULL 检查防崩溃（`InitGPU_API`/`Check_GPU_VRAM_Clock`/`CloseGPU_API`）、线程超时后不 CloseHandle 不 ResetFan 防退出竞态 |
 | **v12** | 🐛 5 项关键修复：配置序列化 Bug（offsetof 含 ConfigPath 导致从未保存配置，v2 格式修复）、窗口恢复（m_bForceHideWindow=FALSE）、强冷退出重置 ControlMode、XML 声明改 UTF-8、注册表 REG_SZ 含 null+字节数、CPU 使用率显示、菜单句柄泄漏 |
 | **v11** | 🔒 5 项安全加固：退出事件信号替代 Sleep+TerminateThread（防死锁）、单实例互斥、m_bForcedCooling 统一加锁、温度异常最大 2 次重试、ExecuteCmd memset 清零 |
 | **v10** | 🔐 m_config 线程安全：CRITICAL_SECTION 锁护所有跨线程访问，`Work()` 热路径快照隔离，UI 与工作线程零竞争 |
