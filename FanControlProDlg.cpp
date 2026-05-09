@@ -281,8 +281,7 @@ if (m_core.m_nInit != 1)
          
          if (WaitForSingleObject(m_hCoreThread, 5000) == WAIT_TIMEOUT)
          {
-             // 线程卡死：不 CloseHandle 也不 ResetFan（线程可能仍在访问 EC）
-             // 直接结束进程避免更坏的结果
+             // 线程卡死：不 ResetFan（线程可能仍在访问 EC），进程退出时 OS 回收句柄
              MessageBox("检测到核心线程异常，程序将退出。");
          }
          else
@@ -292,9 +291,7 @@ if (m_core.m_nInit != 1)
          }
          OnOK();
      }
-    if (m_core.m_nInit != 1)
-        return;
-    m_bWindowVisible = IsWindowVisible();
+     m_bWindowVisible = IsWindowVisible();
     if (m_bWindowVisible && !m_bLastVisible)
     {
         m_core.m_bUpdateRPM = TRUE;

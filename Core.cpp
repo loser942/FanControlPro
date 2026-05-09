@@ -253,6 +253,7 @@ if (ok != 1)
          LoadDefault();
          SaveConfig();
      }
+ }
 
  void CConfig::SaveConfig()
  {
@@ -270,8 +271,9 @@ if (ok != 1)
      if (ok1 != 1 || ok2 != 1)
      {
          AfxMessageBox("配置文件写入失败，请检查磁盘空间和权限");
-     })
+     }
  }
+ 
 
  void CConfig::ExportConfig(PCSTR path) const
  {
