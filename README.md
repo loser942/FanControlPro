@@ -45,6 +45,7 @@
 
 | 版本 | 改进内容 |
 |------|---------|
+| **v17** | 🛡️ GPT 3项高优：GPU DLL 全函数 NULL 检查（Update/LockFrequency 路径）/ 失败路径成员归零 / 线程卡死 ExitProcess 原子退出防竞态 |
 | **v16** | 🛡️ m_pfnGetTempFanDuty NULL 检查：Init() 拒绝初始化 + Update() 调用前防御 return，消除最后一个 DLL 函数指针空调用风险 |
 | **v15** | 🔥 v14 编译错误热修复：LoadConfig 缺 `}` / SaveConfig 多 `)` / OnTimer 死代码清理 |
 | **v14** | 🐛 OP 审查 7 项修复：OnInitDialog 签名 void→BOOL、TRACE1 参数溢出→TRACE、m_bForcedCooling 加锁快照、计数器误判修复、OnOK 防 UAF、fwrite/fread 返回值检查、GetBuffer 补 ReleaseBuffer |
