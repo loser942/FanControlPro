@@ -60,9 +60,10 @@ protected:
 
     // 实现
 protected:
-    HICON m_hIcon;
-    CCore m_core;
-    HANDLE m_hCoreThread;
+HICON m_hIcon;
+     CCore m_core;
+     HANDLE m_hCoreThread;
+    HANDLE m_hSingleInstanceMutex;
     int m_nLastCoreUpdateTime;
     BOOL m_bWindowVisible;
     BOOL m_bAdvancedMode;

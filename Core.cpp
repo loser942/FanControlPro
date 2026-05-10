@@ -40,38 +40,33 @@ int GetTimeInterval(int a, int b, int *p)
 
 // 获取 exe 路径
 CString GetExePath()
-{
-    char pathbuf[1024] = { 0 };
-    int pathlen = ::GetModuleFileName(NULL, pathbuf, 1024);
-    if (pathlen <= 0)
-        return "";
+ {
+     char pathbuf[MAX_PATH] = { 0 };
+     DWORD pathlen = ::GetModuleFileNameA(NULL, pathbuf, MAX_PATH);
+     if (pathlen == 0 || pathlen >= MAX_PATH)
+         return "";
 
-    while (pathlen >= 0)
-    {
-        if (pathbuf[pathlen--] == '\\')
-        {
-            break;
-        }
-    }
-    pathbuf[++pathlen] = 0x0;
-    CString fname = pathbuf;
-    return fname;
-}
+     char* lastSlash = strrchr(pathbuf, '\\');
+     if (lastSlash == NULL)
+         return "";
+     *(lastSlash + 1) = '\0';
+     return CString(pathbuf);
+ }
 
 // ==================== CGPUInfo 实现 ====================
 
 CGPUInfo::CGPUInfo()
  {
-+    // ── 所有成员初始化兜底（DLL 加载失败时也要有合法值）──
-+    m_nMaxFrequency      = 0;
-+    m_nStandardFrequency = 0;
-+    m_nGraphicsClock     = 0;
-+    m_nMemoryClock       = 0;
-+    m_nUsage             = 0;
-+    m_nLockClock         = -1;
-+    m_nBaseClock         = 0;
-+    m_nBoostClock        = 0;
-+    
+    // ── 所有成员初始化兜底（DLL 加载失败时也要有合法值）──
+    m_nMaxFrequency      = 0;
+    m_nStandardFrequency = 0;
+    m_nGraphicsClock     = 0;
+    m_nMemoryClock       = 0;
+    m_nUsage             = 0;
+    m_nLockClock         = -1;
+    m_nBaseClock         = 0;
+    m_nBoostClock        = 0;
+    
      CString dllpth = GetExePath() + "\\NVGPU_DLL.dll";
     if (!m_hGPUdll.Load(dllpth))
     {

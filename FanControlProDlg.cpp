@@ -37,8 +37,9 @@ CFanControlProDlg::CFanControlProDlg(CWnd* pParent)
 {
     m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
     m_bForceHideWindow = TRUE;
-    m_hCoreThread = NULL;
-    m_nLastCoreUpdateTime = -1;
+m_hCoreThread = NULL;
+     m_hSingleInstanceMutex = NULL;
+     m_nLastCoreUpdateTime = -1;
     m_bWindowVisible = FALSE;
     m_bAdvancedMode = TRUE;
     m_nWindowSize[0] = 0;
@@ -121,6 +122,7 @@ BOOL CFanControlProDlg::OnInitDialog()
          ExitProcess(0);
          return FALSE;
      }
+     m_hSingleInstanceMutex = hMutex;
 
      CMenu* pSysMenu = GetSystemMenu(FALSE);
      if (pSysMenu != NULL)
@@ -242,11 +244,12 @@ void CFanControlProDlg::OnOK()
              m_core.m_hWnd = NULL;
          }
      }
-     if (m_core.m_nExit)
-    {
-        KillTimer(0);
-        SetTray(NULL);
-        CDialogEx::OnOK();
+if (m_core.m_nExit)
+     {
+         KillTimer(0);
+         SetTray(NULL);
+        if (m_hSingleInstanceMutex) { CloseHandle(m_hSingleInstanceMutex); m_hSingleInstanceMutex = NULL; }
+         CDialogEx::OnOK();
     }
 }
 
