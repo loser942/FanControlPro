@@ -55,19 +55,48 @@ CString GetExePath()
 
 // ==================== CGPUInfo 实现 ====================
 
-CGPUInfo::CGPUInfo()
+ CGPUInfo::CGPUInfo()
  {
-    // ── 所有成员初始化兜底（DLL 加载失败时也要有合法值）──
-    m_nMaxFrequency      = 0;
-    m_nStandardFrequency = 0;
-    m_nGraphicsClock     = 0;
-    m_nMemoryClock       = 0;
-    m_nUsage             = 0;
-    m_nLockClock         = -1;
-    m_nBaseClock         = 0;
-    m_nBoostClock        = 0;
-    
-     CString dllpth = GetExePath() + "\\NVGPU_DLL.dll";
+     // ── 所有成员初始化兜底（DLL 加载失败时也要有合法值）──
+     m_nMaxFrequency      = 0;
+     m_nStandardFrequency = 0;
+     m_nGraphicsClock     = 0;
+     m_nMemoryClock       = 0;
+     m_nUsage             = 0;
+     m_nLockClock         = -1;
+     m_nBaseClock         = 0;
+     m_nBoostClock        = 0;
+     m_sName              = nullptr;
+     m_nDeviceID          = 0;
+     m_nGraphicsRangeMax  = 0;
+     m_nGraphicsRangeMin  = 0;
+     m_nMemoryRangeMax    = 0;
+     m_nMemoryRangeMin    = 0;
+     m_pfnInitGPU_API              = NULL;
+     m_pfnSet_GPU_Number           = NULL;
+     m_pfnGet_GPU_Base_Clock       = NULL;
+     m_pfnGet_GPU_Boost_Clock      = NULL;
+     m_pfnCheck_GPU_VRAM_Clock     = NULL;
+     m_pfnGet_GPU_Graphics_Clock   = NULL;
+     m_pfnGet_GPU_Memory_Clock     = NULL;
+     m_pfnGet_Memory_OC_max        = NULL;
+     m_pfnGet_GPU_Util             = NULL;
+     m_pfnGet_GPU_name             = NULL;
+     m_pfnGet_GPU_TotalNumber      = NULL;
+     m_pfnGet_GPU_Overclock_range  = NULL;
+     m_pfnGet_Memory_range         = NULL;
+     m_pfnGet_GPU_Overclock_rangeMax = NULL;
+     m_pfnGet_GPU_Overclock_rangeMin = NULL;
+     m_pfnGet_Memory_range_max     = NULL;
+     m_pfnGet_Memory_range_min     = NULL;
+     m_pfnGet_NVDeviceID           = NULL;
+     m_pfnLock_Frequency           = NULL;
+     m_pfnLock_Frequency_MEM       = NULL;
+     m_pfnSet_CoreOC               = NULL;
+     m_pfnSet_MEMOC                = NULL;
+     m_pfnCloseGPU_API             = NULL;
+     
+      CString dllpth = GetExePath() + "\\NVGPU_DLL.dll";
     if (!m_hGPUdll.Load(dllpth))
     {
         TRACE0("无法加载 NVGPU_DLL.dll\n");
@@ -534,7 +563,7 @@ void CCore::Update()
     for (int i = 0; i < 2; i++)
     {
         data = m_pfnGetTempFanDuty(i + 1);
-// 温度异常检测（最多重试 2 次，防止异常值直接采用）
+// 温度异常检测（最多重试 2 次，3 次异常则保留旧温度）
          if (this->m_nCurTemp[i] != 0 && abs(data.Remote - this->m_nCurTemp[i]) > 30)
          {
              if (TempErr++ < 2)
@@ -543,6 +572,10 @@ void CCore::Update()
                  i--;
                  continue;
              }
+             // 连续 3 次异常，放弃更新，保留旧温度
+             TRACE("温度传感器异常：风扇%d 旧值=%d 读取=%d，已跳过\n", i, m_nCurTemp[i], data.Remote);
+             TempErr = 0;
+             continue;
          }
         
         this->m_nLastTemp[i] = this->m_nCurTemp[i];

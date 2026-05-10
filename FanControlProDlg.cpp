@@ -160,6 +160,12 @@ BOOL CFanControlProDlg::OnInitDialog()
          m_core.SetHWnd(this->m_hWnd);
          DWORD dwThreadID = 0;
          m_hCoreThread = CreateThread(NULL, NULL, CoreThread, this, NULL, &dwThreadID);
+          if (m_hCoreThread == NULL)
+          {
+              AfxMessageBox("无法创建核心监控线程，程序即将退出");
+              ExitProcess(1);
+              return FALSE;
+          }
      }
      SetTimer(0, 100, NULL);
      m_ctlAutorun.SetCheck(SetAutorunReg(FALSE) || SetAutorunTask(FALSE));
@@ -293,11 +299,12 @@ if (m_core.m_nInit != 1)
          }
          else
          {
-             CloseHandle(m_hCoreThread);
-             m_hCoreThread = NULL;
-         }
-         OnOK();
-     }
+CloseHandle(m_hCoreThread);
+              m_hCoreThread = NULL;
+          }
+          OnOK();
+          return;
+      }
      m_bWindowVisible = IsWindowVisible();
     if (m_bWindowVisible && !m_bLastVisible)
     {
@@ -777,6 +784,8 @@ int cmdLen = str.GetLength() + 1;
     }
 delete[] cmdline;
      CloseHandle(hWrite);
+     // ── 等待子进程结束（最多 10 秒，防止 SCHTASKS 卡死 UI）──
+     DWORD waitResult = WaitForSingleObject(pi.hProcess, 10000);
      char buffer[4096];
      CString output;
      DWORD byteRead;
@@ -784,6 +793,11 @@ delete[] cmdline;
      {
          buffer[byteRead] = '\0';
          output += buffer;
+     }
+     if (waitResult == WAIT_TIMEOUT)
+     {
+         TerminateProcess(pi.hProcess, 1);
+         output += "\r\n[命令超时已终止]";
      }
     CloseHandle(hRead);
     CloseHandle(pi.hProcess);
