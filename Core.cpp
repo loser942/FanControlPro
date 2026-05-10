@@ -535,7 +535,7 @@ void CCore::Update()
     {
         data = m_pfnGetTempFanDuty(i + 1);
 // 温度异常检测（最多重试 2 次，防止异常值直接采用）
-         if (abs(data.Remote - this->m_nCurTemp[i]) > 30)
+         if (this->m_nCurTemp[i] != 0 && abs(data.Remote - this->m_nCurTemp[i]) > 30)
          {
              if (TempErr++ < 2)
              {
@@ -714,7 +714,7 @@ void CCore::ResetFan()
 
 void CCore::VerifyAndReclaim()
 {
-    if (!m_bTakeOverStatus || m_pfnGetTempFanDuty == NULL)
+    if (!m_bTakeOverStatus || m_pfnGetTempFanDuty == NULL || m_pfnSetFanDuty == NULL)
         return;
 
     m_bEcTakeoverFlag = FALSE;

@@ -231,18 +231,20 @@ void CFanControlProDlg::OnOK()
          m_core.m_nExit = 1;
          m_core.SignalExit();
      }
-     if (m_core.m_nExit == 1)
+     if (m_hCoreThread)
      {
-         int count = 0;
-         while (m_core.m_nExit == 1 && count++ < 50)
+         DWORD waitResult = WaitForSingleObject(m_hCoreThread, 5000);
+         if (waitResult == WAIT_TIMEOUT)
          {
-             Sleep(100);
-         }
-         if (m_core.m_nExit == 1)
-         {
-             // 线程未在5s内退出，置空句柄防止 CheckTempWarning 访问已销毁窗口
+             // 线程卡死：ExitProcess 原子退出
              m_core.m_hWnd = NULL;
+             KillTimer(0);
+             SetTray(NULL);
+             if (m_hSingleInstanceMutex) { CloseHandle(m_hSingleInstanceMutex); m_hSingleInstanceMutex = NULL; }
+             ExitProcess(1);
          }
+         CloseHandle(m_hCoreThread);
+         m_hCoreThread = NULL;
      }
 if (m_core.m_nExit)
      {
@@ -269,10 +271,11 @@ void CFanControlProDlg::OnCancel()
 void CFanControlProDlg::OnTimer(UINT_PTR nIDEvent)
 {
     CDialogEx::OnTimer(nIDEvent);
-    if (m_core.m_nExit == 2)
-    {
-        OnOK();
-    }
+if (m_core.m_nExit == 2)
+     {
+         OnOK();
+         return;
+     }
 if (m_core.m_nInit != 1)
          return;
      m_nCheckThreadCount++;
@@ -606,9 +609,11 @@ void CFanControlProDlg::OnBnClickedCheckAutorun()
     {
         int rv = MessageBox("请选择开机自动启动方式：\r\n\r\n\"是\"=注册表方式（简单）\r\n\"否\"=任务计划程序（推荐）\r\n\"取消\"=放弃设置", 
             "设置开机自启", MB_YESNOCANCEL);
-        if (IDYES == rv) { SetAutorunReg(TRUE, TRUE); SetAutorunReg(FALSE); }
-        else if (IDNO == rv) { SetAutorunTask(TRUE, TRUE); SetAutorunTask(FALSE); }
-        else { m_ctlAutorun.SetCheck(FALSE); }
+BOOL bSuccess = FALSE;
+         if (IDYES == rv) { bSuccess = SetAutorunReg(TRUE, TRUE); SetAutorunReg(FALSE); }
+         else if (IDNO == rv) { bSuccess = SetAutorunTask(TRUE, TRUE); SetAutorunTask(FALSE); }
+         if (!bSuccess) { m_ctlAutorun.SetCheck(FALSE); AfxMessageBox("开机自启设置失败，请以管理员身份运行。"); }
+         else { m_ctlAutorun.SetCheck(TRUE); }
     }
     else
     {
@@ -760,27 +765,26 @@ CString CFanControlProDlg::ExecuteCmd(CString str)
     si.hStdOutput = hWrite;
     si.wShowWindow = SW_HIDE;
     si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
-    char cmdline[1024];
-    strcpy_s(cmdline, 1024, str);
-    if (!CreateProcess(NULL, cmdline, NULL, NULL, TRUE, NULL, NULL, NULL, &si, &pi))
-    {
-        CloseHandle(hWrite);
-        CloseHandle(hRead);
+int cmdLen = str.GetLength() + 1;
+     char* cmdline = new char[cmdLen];
+     strcpy_s(cmdline, cmdLen, str);
+     if (!CreateProcess(NULL, cmdline, NULL, NULL, TRUE, NULL, NULL, NULL, &si, &pi))
+     {
+         CloseHandle(hWrite);
+         CloseHandle(hRead);
+         delete[] cmdline;
         return "[执行失败]";
     }
-    CloseHandle(hWrite);
-    char buffer[4096] = "";
-    CString output;
-    DWORD byteRead;
-    int i = 0;
-while (true)
+delete[] cmdline;
+     CloseHandle(hWrite);
+     char buffer[4096];
+     CString output;
+     DWORD byteRead;
+     while (ReadFile(hRead, buffer, sizeof(buffer) - 1, &byteRead, NULL) && byteRead > 0)
      {
-         Sleep(100);
-         memset(buffer, 0, sizeof(buffer));
-         if (ReadFile(hRead, buffer, 4095, &byteRead, NULL) == NULL) break;
-        if (byteRead) output += buffer;
-        if (i++ >= 50) break;
-    }
+         buffer[byteRead] = '\0';
+         output += buffer;
+     }
     CloseHandle(hRead);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
