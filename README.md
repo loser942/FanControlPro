@@ -45,6 +45,7 @@
 
 | 版本 | 改进内容 |
 |------|---------|
+| **v21** | 🛡️ openclaw 审查 2 项：GPU DLL 全部 19 个函数指针纳入安全检查 / 强冷退出还原保存的 ControlMode（非硬编码 0） |
 | **v20** | 🛡️ 本轮审查 5 项：CGPUInfo 构造器全部指针/成员归零 / 温度异常 3 次后保留旧值 / CreateThread 失败弹错退出 / OnTimer>300 OnOK 后立即 return / ExecuteCmd WaitForSingleObject 10s 超时终止 |
 | **v19** | 🔧 Claude 审查 8 项：OnOK ExitProcess+句柄关闭 / m_pfnSetFanDuty 判空 / Update 首帧跳过重试 / OnTimer 防重入 / ExecuteCmd 动态缓冲+ReadFile 修复 / Autorun 返回值检查 |
 | **v18** | 🔧 互斥体句柄泄漏修复（CreateMutex→保存→OnOK释放）+ GetExePath 改用 strrchr 增强健壮性 |
