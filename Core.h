@@ -213,6 +213,7 @@ public:
 int m_nLastSetDutyEC[2];
      int m_nEcTakeoverCount;
      BOOL m_bEcTakeoverFlag;
+     int m_nSavedControlMode;
 
      HANDLE m_hExitEvent;
 

@@ -131,7 +131,11 @@ HMODULE hDll = m_hGPUdll.Get();
      // ── DLL 安全检查：所有调用路径上的函数指针必须非空 ──
      if (!m_pfnInitGPU_API || !m_pfnCheck_GPU_VRAM_Clock || !m_pfnCloseGPU_API ||
          !m_pfnGet_GPU_Graphics_Clock || !m_pfnGet_GPU_Memory_Clock || !m_pfnGet_GPU_Util ||
-         !m_pfnSet_CoreOC || !m_pfnSet_MEMOC || !m_pfnLock_Frequency || !m_pfnLock_Frequency_MEM)
+         !m_pfnSet_CoreOC || !m_pfnSet_MEMOC || !m_pfnLock_Frequency || !m_pfnLock_Frequency_MEM ||
+         !m_pfnSet_GPU_Number || !m_pfnGet_GPU_Base_Clock || !m_pfnGet_GPU_Boost_Clock ||
+         !m_pfnGet_GPU_name || !m_pfnGet_NVDeviceID ||
+         !m_pfnGet_GPU_Overclock_rangeMax || !m_pfnGet_GPU_Overclock_rangeMin ||
+         !m_pfnGet_Memory_range_max || !m_pfnGet_Memory_range_min)
      {
          TRACE0("NVGPU_DLL.dll 缺少必需的导出函数，GPU 功能不可用\n");
          m_hGPUdll.Close();
@@ -396,6 +400,7 @@ CCore::CCore()
     m_nLastSetDutyEC[1] = 0;
 m_nEcTakeoverCount = 0;
      m_bEcTakeoverFlag = FALSE;
+     m_nSavedControlMode = 0;
 
      m_hExitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
@@ -815,11 +820,12 @@ void CCore::EnableForcedCooling(BOOL enable)
      m_bForcedCooling = enable;
      if (enable)
      {
+         m_nSavedControlMode = m_config.ControlMode;
          m_config.ControlMode = 2;
      }
      else
      {
-         m_config.ControlMode = 0;  // 退出强冷时恢复自动模式
+         m_config.ControlMode = m_nSavedControlMode;
      }
      LeaveCriticalSection(&m_csConfig);
  }
@@ -835,15 +841,16 @@ void CCore::SetMaxDutyLimit(int limit)
 void CCore::SetControlMode(int mode)
 {
     EnterCriticalSection(&m_csConfig);
-    m_config.ControlMode = mode;
     if (mode == 2)
     {
+        m_nSavedControlMode = m_config.ControlMode;
         m_bForcedCooling = TRUE;
     }
     else
     {
         m_bForcedCooling = FALSE;
     }
+    m_config.ControlMode = mode;
     LeaveCriticalSection(&m_csConfig);
 }
 
