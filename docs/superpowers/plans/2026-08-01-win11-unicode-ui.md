@@ -25,7 +25,7 @@
 - `TemperatureAlertPolicy.h`：纯 C++17 告警状态机接口和默认值。
 - `diagnostics/temperature_alert_policy_test.cpp`：不依赖 MFC 的告警状态机断言测试。
 - `Core.h` / `Core.cpp`：配置字段、告警状态机集成、Unicode 托盘通知及 ANSI 硬件边界。
-- `FanControlPro.vcxproj`：MFC 应用 Unicode 字符集与新源文件编译项。
+- `FanControlPro.vcxproj`：在 UI 全面改为宽字符后切换 MFC 应用 Unicode 字符集，并列出新增头文件。
 - `FanControlProDlg.h` / `FanControlProDlg.cpp`：宽字符 UI 文本、告警控件、紧凑/高级布局状态和输入校验。
 - `resource.h` / `FanControlPro.rc`：控件 ID 与 Win11 紧凑双栏资源模板。
 - `diagnostics/startup_state_test.cpp`：完整验证启动阶段禁止风扇写入的状态契约。
@@ -121,7 +121,6 @@ git commit -m "feat: add throttled temperature alert policy"
 **Files:**
 - Modify: `Core.h`
 - Modify: `Core.cpp`
-- Modify: `FanControlPro.vcxproj`
 
 **Interfaces:**
 - Consumes: `TemperatureAlertPolicy::Evaluate`。
@@ -167,7 +166,7 @@ NotificationCooldownMinutes = max(1, min(60, NotificationCooldownMinutes));
 
 将两个配置方法实现为在配置临界区内更新、范围校验、释放锁后 `SaveConfig()`；`IsTemperatureWarning()` 返回 `m_bTempWarning != FALSE`。
 
-将两处 `<CharacterSet>MultiByte</CharacterSet>` 替换为 `<CharacterSet>Unicode</CharacterSet>`，并在 `ClInclude` 中加入 `TemperatureAlertPolicy.h`。
+在 `ClInclude` 中加入 `TemperatureAlertPolicy.h`。项目字符集切换由 Task 3 与全部 UI 宽字符改造一起完成，避免此任务把已知的旧 UI 窄字符错误带入中间构建。
 
 保留 `DllHandle::Load(PCSTR)`、`DllHandle::GetProc(PCSTR)`、`LoadLibraryA`、`GetProcAddress`、`ConfigPath`、`fopen` 与 `WriteDiagnosticLog(PCSTR)`。修复 `CString` 到 `char[]` 的现有路径复制时使用明确的 `CStringA(CW2A(path, CP_ACP))`，禁止依赖 Unicode 下的隐式转换。
 
@@ -180,7 +179,7 @@ Expected: 两个 MSBuild 命令退出码为 0，告警测试退出码为 0。
 - [ ] **Step 5: 提交核心告警与字符集迁移**
 
 ```powershell
-git add Core.h Core.cpp FanControlPro.vcxproj TemperatureAlertPolicy.h
+git add Core.h Core.cpp TemperatureAlertPolicy.h
 git commit -m "fix: use Unicode throttled temperature notifications"
 ```
 
@@ -191,6 +190,7 @@ git commit -m "fix: use Unicode throttled temperature notifications"
 - Modify: `FanControlPro.rc`
 - Modify: `FanControlProDlg.h`
 - Modify: `FanControlProDlg.cpp`
+- Modify: `FanControlPro.vcxproj`
 
 **Interfaces:**
 - Consumes: `CCore::IsTemperatureWarning()`、`CCore::SetWarningSettings(BOOL, int, int)`。
@@ -219,7 +219,7 @@ Expected: 链接失败，提示 `ApplyResponsiveLayout` 或 `UpdateWarningStatus
 
 将主对话框改为约 `470 x 300` DLU 的默认尺寸：左侧“运行状态”栏放 CPU/GPU 温度、进度条、RPM、使用率和启动状态；右侧“风扇控制”栏放模式、接管、强冷、两路滑块和数值输入。底部放“加载配置”“保存配置”“重置默认”和“高级设置”。高级设置区域放在默认区域下方，组框使用 `IDC_STATIC_ADVANCED_GROUP`，初始隐藏，包含原有高级控件及新增“启用桌面通知”“告警温度(°C)”“最短通知间隔(分钟)”。所有资源文字使用中文与 `Segoe UI`。
 
-`DoDataExchange` 绑定新增控件；`OnInitDialog` 用 `L"自动模式"`、`L"手动模式"`、`L"强冷模式"` 添加下拉项；所有 `SetWindowTextA`、`GetWindowTextA`、窄 `sprintf_s` UI 格式化、窄 `AfxMessageBox` 和 `MessageBox` 替换为 Unicode 版本。通过 `CStringW::Format(L"CPU: %d°C", temp)` 等格式化实时文字。
+`DoDataExchange` 绑定新增控件；`OnInitDialog` 用 `L"自动模式"`、`L"手动模式"`、`L"强冷模式"` 添加下拉项；所有 `SetWindowTextA`、`GetWindowTextA`、窄 `sprintf_s` UI 格式化、窄 `AfxMessageBox` 和 `MessageBox` 替换为 Unicode 版本。通过 `CStringW::Format(L"CPU: %d°C", temp)` 等格式化实时文字。随后将两处 `<CharacterSet>MultiByte</CharacterSet>` 替换为 `<CharacterSet>Unicode</CharacterSet>`，使全工程只在 UI 已转换后切换字符集。
 
 `UpdateGui()` 从配置读取告警字段，回填新增控件，调用 `UpdateWarningStatus()`；该方法在 `m_core.IsTemperatureWarning()` 为真时显示 `L"温度告警：请检查散热状态"`，否则保持启动状态。`CheckAndSave()` 读取三个新增输入，分别校验 60-100、1-60，失败时使用中文提示并将焦点放到对应控件；校验成功后调用 `SetWarningSettings()`。
 
@@ -234,7 +234,7 @@ Expected: 两个构建成功；静态检查没有命中 UI 宽字符禁用 API�
 - [ ] **Step 5: 提交资源和界面改造**
 
 ```powershell
-git add resource.h FanControlPro.rc FanControlProDlg.h FanControlProDlg.cpp
+git add resource.h FanControlPro.rc FanControlProDlg.h FanControlProDlg.cpp FanControlPro.vcxproj
 git commit -m "feat: redesign compact Unicode Win11 interface"
 ```
 
