@@ -191,6 +191,7 @@ git commit -m "fix: use Unicode throttled temperature notifications"
 - Modify: `FanControlProDlg.h`
 - Modify: `FanControlProDlg.cpp`
 - Modify: `FanControlPro.vcxproj`
+- Modify: `Core.cpp`（仅将 Unicode 编译阻断的用户可见窄字符串改为宽字符串；不得改变 EC 或风扇逻辑）
 
 **Interfaces:**
 - Consumes: `CCore::IsTemperatureWarning()`、`CCore::SetWarningSettings(BOOL, int, int)`。
