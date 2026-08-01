@@ -7,6 +7,11 @@ int main()
     assert(!CanEnableTakeover(StartupState::CoreStarting));
     assert(CanEnableTakeover(StartupState::CoreReady));
     assert(!CanEnableTakeover(StartupState::CoreFailed));
+    assert(!CanEnableTakeover(StartupState::Exiting));
+    assert(!CanWriteFans(StartupState::UiReady, true));
+    assert(!CanWriteFans(StartupState::CoreStarting, true));
+    assert(!CanWriteFans(StartupState::CoreFailed, true));
+    assert(!CanWriteFans(StartupState::Exiting, true));
     assert(!CanWriteFans(StartupState::CoreReady, false));
     assert(CanWriteFans(StartupState::CoreReady, true));
     return 0;
