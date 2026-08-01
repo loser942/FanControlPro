@@ -100,6 +100,7 @@ HICON m_hIcon;
     CStatic m_ctlGpuUsageText;
     CSliderCtrl m_ctlMaxDutySlider;
     CEdit m_ctlMaxDutyEdit;
+    CStatic m_ctlStartupStatus;
     
     // 手动模式风扇控件 ID 数组
     int m_nDutyEditCtlID[2][10];
@@ -115,6 +116,8 @@ public:
     afx_msg void OnWindowPosChanging(WINDOWPOS* lpwndpos);
     afx_msg void OnTimer(UINT_PTR nIDEvent);
     afx_msg LRESULT OnShowTask(WPARAM wParam, LPARAM lParam);
+    afx_msg LRESULT OnDeferredStartup(WPARAM wParam, LPARAM lParam);
+    afx_msg LRESULT OnCoreInitResult(WPARAM wParam, LPARAM lParam);
     
     // 按钮事件
     afx_msg void OnBnClickedButtonSave();
@@ -136,6 +139,8 @@ public:
     BOOL CheckAndSave();
     void SetTray(PCSTR string);
     void SetAdvancedMode(BOOL bAdvanced);
+    void SetStartupStatus(PCSTR status);
+    void SetTakeoverControlsEnabled(BOOL enabled);
     static DWORD WINAPI CoreThread(LPVOID lParam);
     virtual void OnOK();
     virtual void OnCancel();

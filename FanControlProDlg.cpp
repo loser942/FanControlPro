@@ -11,6 +11,7 @@
 #endif
 
 #define WM_SHOWTASK (WM_USER + 1)
+#define WM_DEFERRED_STARTUP (WM_APP + 1)
 
 class CAboutDlg : public CDialogEx
 {
@@ -86,6 +87,7 @@ void CFanControlProDlg::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_STATIC_GPU_USAGE, m_ctlGpuUsageText);
     DDX_Control(pDX, IDC_MAX_DUTY_SLIDER, m_ctlMaxDutySlider);
     DDX_Control(pDX, IDC_EDIT_MAX_DUTY, m_ctlMaxDutyEdit);
+    DDX_Control(pDX, IDC_STATIC_STARTUP_STATUS, m_ctlStartupStatus);
 }
 
 BEGIN_MESSAGE_MAP(CFanControlProDlg, CDialogEx)
@@ -108,6 +110,8 @@ BEGIN_MESSAGE_MAP(CFanControlProDlg, CDialogEx)
     ON_BN_CLICKED(IDC_CHECK_PERFORMANCE, &CFanControlProDlg::OnBnClickedPerformance)
     ON_CBN_SELCHANGE(IDC_COMBO_MODE, &CFanControlProDlg::OnCbnSelchangeComboMode)
     ON_MESSAGE(WM_SHOWTASK, &CFanControlProDlg::OnShowTask)
+    ON_MESSAGE(WM_DEFERRED_STARTUP, &CFanControlProDlg::OnDeferredStartup)
+    ON_MESSAGE(WM_CORE_INIT_RESULT, &CFanControlProDlg::OnCoreInitResult)
 END_MESSAGE_MAP()
 
 BOOL CFanControlProDlg::OnInitDialog()
@@ -158,29 +162,76 @@ BOOL CFanControlProDlg::OnInitDialog()
      m_ctlMaxDutyEdit.SetWindowText("85");
      m_ctlCpuTempProgress.SetRange(0, 100);
      m_ctlGpuTempProgress.SetRange(0, 100);
-     SetTray("FanControl Pro - 智能风扇控制");
-     if (m_hCoreThread == NULL)
-     {
-         m_core.SetHWnd(this->m_hWnd);
-         DWORD dwThreadID = 0;
-          m_hCoreThread = CreateThread(NULL, NULL, CoreThread, this, NULL, &dwThreadID);
-           if (m_hCoreThread == NULL)
-           {
-               WriteDiagnosticLog("Core thread creation failed");
-               AfxMessageBox("Cannot create the core monitoring thread.");
-              ExitProcess(1);
-              return FALSE;
-           }
-           WriteDiagnosticLog("Core thread created");
-     }
-     SetTimer(0, 100, NULL);
-     m_ctlAutorun.SetCheck(SetAutorunReg(FALSE) || SetAutorunTask(FALSE));
+     WriteDiagnosticLog("UI controls ready");
+     SetStartupStatus("正在初始化监控，BIOS 风扇控制保持启用");
+     SetTakeoverControlsEnabled(FALSE);
+     WriteDiagnosticLog("UI visible startup posted");
+     PostMessage(WM_DEFERRED_STARTUP);
 
      // ── 窗口初始化完成后允许正常显示 ──
      m_bForceHideWindow = FALSE;
 
      return TRUE;
  }
+
+LRESULT CFanControlProDlg::OnDeferredStartup(WPARAM, LPARAM)
+{
+    WriteDiagnosticLog("Deferred startup started");
+    if (m_hCoreThread == NULL)
+    {
+        m_core.SetHWnd(this->m_hWnd);
+        DWORD threadId = 0;
+        m_hCoreThread = CreateThread(NULL, NULL, CoreThread, this, NULL, &threadId);
+        if (m_hCoreThread == NULL)
+        {
+            char line[128] = {};
+            sprintf_s(line, "Core thread creation failed. LastError=%lu", GetLastError());
+            WriteDiagnosticLog(line);
+            SetStartupStatus("无法启动监控线程，BIOS 风扇控制保持启用");
+            return 0;
+        }
+        WriteDiagnosticLog("Core thread created");
+    }
+
+    SetTimer(0, 100, NULL);
+    WriteDiagnosticLog("Optional tray setup started");
+    SetTray("FanControl Pro - 智能风扇控制");
+    WriteDiagnosticLog("Optional autorun status check started");
+    m_ctlAutorun.SetCheck(SetAutorunReg(FALSE) || SetAutorunTask(FALSE));
+    return 0;
+}
+
+LRESULT CFanControlProDlg::OnCoreInitResult(WPARAM wParam, LPARAM)
+{
+    if (wParam != 0)
+    {
+        SetStartupStatus("监控已就绪；请确认读数后再启用接管");
+        SetTakeoverControlsEnabled(TRUE);
+        WriteDiagnosticLog("UI core initialization succeeded");
+    }
+    else
+    {
+        char line[160] = {};
+        sprintf_s(line, "监控初始化失败（错误 %lu），BIOS 风扇控制保持启用", m_core.GetInitError());
+        SetStartupStatus(line);
+        SetTakeoverControlsEnabled(FALSE);
+        WriteDiagnosticLog("UI core initialization failed");
+    }
+    return 0;
+}
+
+void CFanControlProDlg::SetStartupStatus(PCSTR status)
+{
+    if (m_ctlStartupStatus.GetSafeHwnd())
+        m_ctlStartupStatus.SetWindowTextA(status);
+}
+
+void CFanControlProDlg::SetTakeoverControlsEnabled(BOOL enabled)
+{
+    m_ctlTakeOver.EnableWindow(enabled);
+    m_ctlForcedCooling.EnableWindow(enabled);
+    m_ctlMode.EnableWindow(enabled);
+}
 
 void CFanControlProDlg::OnSysCommand(UINT nID, LPARAM lParam)
 {
@@ -561,8 +612,15 @@ HMENU hmenu = menu.Detach();
 
 void CFanControlProDlg::OnBnClickedCheckTakeover()
 {
+    if (m_core.GetStartupState() != StartupState::CoreReady)
+    {
+        m_ctlTakeOver.SetCheck(FALSE);
+        return;
+    }
+    const BOOL authorized = m_ctlTakeOver.GetCheck();
+    m_core.SetUserTakeoverAuthorized(authorized);
     m_core.LockConfig();
-    m_core.m_config.TakeOver = m_ctlTakeOver.GetCheck();
+    m_core.m_config.TakeOver = authorized;
     m_core.UnlockConfig();
 }
 

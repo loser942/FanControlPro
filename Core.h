@@ -4,6 +4,9 @@
 #include <atomic>
 #include <memory>
 #include <synchapi.h>
+#include "StartupState.h"
+
+constexpr UINT WM_CORE_INIT_RESULT = WM_APP + 2;
 
 // ── 编译期常量（替代 #define）──
 constexpr int TEMP_LEVELS          = 10;   // 温度档位
@@ -208,6 +211,10 @@ public:
     std::atomic<BOOL> m_bForcedRefresh;
     int m_nNextCheckTime;
     BOOL m_bSetPriority;
+    std::atomic<StartupState> m_startupState{ StartupState::UiReady };
+    std::atomic_bool m_userTakeoverAuthorized{ false };
+    std::atomic_bool m_fansTouched{ false };
+    std::atomic<DWORD> m_initError{ ERROR_SUCCESS };
     
     int m_nSmoothedDuty[2];
     
@@ -226,6 +233,9 @@ int m_nLastSetDutyEC[2];
  public:
      void SetHWnd(HWND hWnd) { m_hWnd = hWnd; }
      void SignalExit() { if (m_hExitEvent) SetEvent(m_hExitEvent); }
+     StartupState GetStartupState() const { return m_startupState.load(); }
+     DWORD GetInitError() const { return m_initError.load(); }
+     void SetUserTakeoverAuthorized(BOOL authorized);
 
 public:
     BOOL Init();

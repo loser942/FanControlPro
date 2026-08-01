@@ -340,20 +340,20 @@ void CConfig::Normalize()
  void CConfig::SaveConfig()
  {
      FILE *fp = fopen(ConfigPath, "wb");
-     if (fp == NULL)
-     {
-         AfxMessageBox("无法写入配置文件");
-         return;
+    if (fp == NULL)
+    {
+        WriteDiagnosticLog("Config write open failed");
+        return;
      }
      int header[2] = { CONFIG_MAGIC, CONFIG_VERSION };
      int ok1 = fwrite(header, sizeof(header), 1, fp);
      const size_t configDataSize = offsetof(CConfig, ConfigPath);
      int ok2 = fwrite(reinterpret_cast<char*>(this), configDataSize, 1, fp);
      fclose(fp);
-     if (ok1 != 1 || ok2 != 1)
-     {
-         AfxMessageBox("配置文件写入失败，请检查磁盘空间和权限");
-     }
+    if (ok1 != 1 || ok2 != 1)
+    {
+        WriteDiagnosticLog("Config write failed");
+    }
  }
  
 
@@ -476,9 +476,9 @@ BOOL CCore::Init()
         char logLine[128] = {};
         sprintf_s(logLine, "ClevoEcInfo.dll load failed. LastError=%lu", GetLastError());
         WriteDiagnosticLog(logLine);
-        CString message;
-        message.Format("Cannot load ClevoEcInfo.dll. Win32 error: %lu", GetLastError());
-        AfxMessageBox(message);
+        m_initError = GetLastError();
+        m_startupState = StartupState::CoreFailed;
+        if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 0, 0);
         return FALSE;
     }
     WriteDiagnosticLog("ClevoEcInfo.dll loaded");
@@ -502,25 +502,19 @@ BOOL CCore::Init()
     if (!initOk)
     {
         m_hInstDLL.Close();
-        CString message;
-        message.Format("EC initialization failed. Exports: %d, InitIo: %d, Win32 error: %lu",
-            hasRequiredExports, initOk, GetLastError());
-        AfxMessageBox(message);
+        m_initError = GetLastError();
+        m_startupState = StartupState::CoreFailed;
+        if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 0, 0);
         return FALSE;
     }
 
     TRACE0("内核初始化成功\n");
     
-    if (m_pfnSetFANDutyAuto != NULL)
-    {
-        int fanCount = 2;
-        if (m_pfnGetFANCounter)
-            fanCount = max(2, m_pfnGetFANCounter());
-        for (int i = 0; i < fanCount; i++)
-            m_pfnSetFANDutyAuto(i + 1);
-    }
-    
     m_nInit = 1;
+    m_startupState = StartupState::CoreReady;
+    m_initError = ERROR_SUCCESS;
+    WriteDiagnosticLog("Core.Init completed read-only probe");
+    if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 1, 0);
     return TRUE;
 }
 
@@ -533,9 +527,14 @@ void CCore::Uninit()
 
 void CCore::Run()
 {
+    m_startupState = StartupState::CoreStarting;
+    WriteDiagnosticLog("Core config load started");
     EnterCriticalSection(&m_csConfig);
     m_config.LoadConfig();
+    m_config.TakeOver = FALSE;
+    m_config.LockGPUFrequency = FALSE;
     LeaveCriticalSection(&m_csConfig);
+    WriteDiagnosticLog("Core config load completed");
     
     if (!m_nInit)
         Init();
@@ -559,7 +558,7 @@ void CCore::Run()
             if (++ecRefreshTick >= EC_REFRESH_TICKS)
             {
                 ecRefreshTick = 0;
-                if (bTakeOver && m_bTakeOverStatus)
+                if (bTakeOver && CanWriteFans(m_startupState.load(), m_userTakeoverAuthorized.load()) && m_bTakeOverStatus)
                     SetFanDuty();
             }
             
@@ -804,7 +803,7 @@ void CCore::CalcManualDuty(const CConfig& cfg)
 
 void CCore::ResetFan()
 {
-    if (m_bTakeOverStatus && m_pfnSetFANDutyAuto != NULL)
+    if (m_fansTouched.exchange(false) && m_pfnSetFANDutyAuto != NULL)
     {
         int fanCount = 2;
         if (m_pfnGetFANCounter)
@@ -849,7 +848,7 @@ void CCore::VerifyAndReclaim()
 
 void CCore::SetFanDuty()
 {
-    if (m_pfnSetFanDuty == NULL)
+    if (m_pfnSetFanDuty == NULL || !CanWriteFans(m_startupState.load(), m_userTakeoverAuthorized.load()))
         return;
 
     int fanCount = 2;
@@ -882,6 +881,15 @@ void CCore::SetFanDuty()
         if (i < 2) m_nLastSetDutyEC[i] = duty;
     }
     m_bTakeOverStatus = TRUE;
+    m_fansTouched = true;
+}
+
+void CCore::SetUserTakeoverAuthorized(BOOL authorized)
+{
+    if (!authorized && m_userTakeoverAuthorized.exchange(false))
+        ResetFan();
+    else if (authorized)
+        m_userTakeoverAuthorized = true;
 }
 
 void CCore::EnableForcedCooling(BOOL enable)
