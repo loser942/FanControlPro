@@ -121,7 +121,6 @@ END_MESSAGE_MAP()
 BOOL CFanControlProDlg::OnInitDialog()
  {
      CDialogEx::OnInitDialog();
-     ApplyResponsiveLayout();
      WriteDiagnosticLog("Dialog initialization started");
 
      // ── 单实例互斥 ──
@@ -731,9 +730,12 @@ void CFanControlProDlg::ApplyResponsiveLayout()
     const int statusHeight = 210;
     const int columnWidth = (client.Width() - margin * 2 - gap) / 2;
     const int buttonY = client.bottom - 34;
-    GetDlgItem(IDC_BUTTON_LOAD)->MoveWindow(client.right - 210, buttonY, 60, 24);
-    GetDlgItem(IDC_BUTTON_SAVE)->MoveWindow(client.right - 140, buttonY, 60, 24);
-    GetDlgItem(IDC_BUTTON_RESET)->MoveWindow(client.right - 70, buttonY, 60, 24);
+    if (CWnd* loadButton = GetDlgItem(IDC_BUTTON_LOAD))
+        loadButton->MoveWindow(client.right - 210, buttonY, 60, 24);
+    if (CWnd* saveButton = GetDlgItem(IDC_BUTTON_SAVE))
+        saveButton->MoveWindow(client.right - 140, buttonY, 60, 24);
+    if (CWnd* resetButton = GetDlgItem(IDC_BUTTON_RESET))
+        resetButton->MoveWindow(client.right - 70, buttonY, 60, 24);
     if (CWnd* advancedGroup = GetDlgItem(IDC_STATIC_ADVANCED_GROUP))
         advancedGroup->MoveWindow(margin, margin + statusHeight + gap,
             client.Width() - margin * 2, m_bAdvancedMode ? client.bottom - buttonY - 22 : 0);
