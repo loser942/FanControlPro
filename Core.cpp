@@ -2,6 +2,7 @@
 #include "Core.h"
 #include "resource.h"
 #include <cmath>
+#include <strsafe.h>
 using std::max;
 using std::min;
 
@@ -98,7 +99,8 @@ CString GetExePath()
      m_pfnCloseGPU_API             = NULL;
      
       CString dllpth = GetExePath() + "\\NVGPU_DLL.dll";
-    if (!m_hGPUdll.Load(dllpth))
+    CStringA dllPathA(CT2A(dllpth, CP_ACP));
+    if (!m_hGPUdll.Load(dllPathA))
     {
         TRACE0("无法加载 NVGPU_DLL.dll\n");
         return;
@@ -228,7 +230,9 @@ BOOL CGPUInfo::LockFrequency(int frequency)
 CConfig::CConfig()
 {
     CString path = GetExePath() + "\\FanControlPro.cfg";
-    strcpy_s(ConfigPath, MAX_PATH, path);
+    CStringW configPathW(path);
+    CStringA configPathA(CW2A(configPathW, CP_ACP));
+    strcpy_s(ConfigPath, MAX_PATH, configPathA);
     LoadDefault();
 }
 
@@ -267,12 +271,17 @@ void CConfig::LoadDefault()
     ControlMode = 0;
     ManualDuty[0] = 50;
     ManualDuty[1] = 50;
+
+    WarningTemp = 90;
+    DesktopNotifications = TRUE;
+    NotificationCooldownMinutes = 10;
 }
 
 void WriteDiagnosticLog(PCSTR message)
 {
     CString path = GetExePath() + "FanControlPro.debug.log";
-    FILE* file = fopen(path, "at");
+    CStringA logPathA(CT2A(path, CP_ACP));
+    FILE* file = fopen(logPathA, "at");
     if (!file)
         return;
 
@@ -290,6 +299,9 @@ void CConfig::Normalize()
     ForceTemp = max(60, min(95, ForceTemp));
     MaxDutyLimit = max(0, min(100, MaxDutyLimit));
     ControlMode = max(0, min(2, ControlMode));
+    WarningTemp = max(60, min(100, WarningTemp));
+    DesktopNotifications = !!DesktopNotifications;
+    NotificationCooldownMinutes = max(1, min(60, NotificationCooldownMinutes));
     Linear = !!Linear;
     TakeOver = !!TakeOver;
     LockGPUFrequency = !!LockGPUFrequency;
@@ -303,7 +315,7 @@ void CConfig::Normalize()
 }
 
 #define CONFIG_MAGIC 0x46504346
- #define CONFIG_VERSION 2          // v2: 修复序列化偏移量（v1 的 bug 导致配置从未实际保存）
+ #define CONFIG_VERSION 3          // v3: 增加温度告警设置
 
  void CConfig::LoadConfig()
  {
@@ -440,7 +452,6 @@ CCore::CCore()
     
     m_bTempWarning = FALSE;
     m_bThermalEmergency = FALSE;
-    m_nWarningTemp = 90;
     m_hWnd = NULL;
 
     m_nLastSetDutyEC[0] = 0;
@@ -471,7 +482,8 @@ BOOL CCore::Init()
     m_nInit = -1;
     
     CString dllpth = GetExePath() + "\\ClevoEcInfo.dll";
-    if (!m_hInstDLL.Load(dllpth))
+    CStringA dllPathA(CT2A(dllpth, CP_ACP));
+    if (!m_hInstDLL.Load(dllPathA))
     {
         char logLine[128] = {};
         sprintf_s(logLine, "ClevoEcInfo.dll load failed. LastError=%lu", GetLastError());
@@ -934,31 +946,50 @@ void CCore::SetControlMode(int mode)
 
 BOOL CCore::CheckTempWarning()
 {
-    if (m_nCurTemp[0].load() >= m_nWarningTemp || m_nCurTemp[1].load() >= m_nWarningTemp)
+    CConfig configSnapshot;
+    LockConfig();
+    configSnapshot = m_config;
+    UnlockConfig();
+
+    const auto decision = m_temperatureAlertPolicy.Evaluate(
+        m_nCurTemp[0].load(),
+        m_nCurTemp[1].load(),
+        configSnapshot.WarningTemp,
+        configSnapshot.DesktopNotifications != FALSE,
+        GetTickCount64(),
+        static_cast<ULONGLONG>(configSnapshot.NotificationCooldownMinutes) * 60 * 1000);
+    m_bTempWarning = decision.alertActive;
+
+    if (decision.shouldNotify && m_hWnd)
     {
-        if (!m_bTempWarning)
-        {
-            m_bTempWarning = TRUE;
-            if (m_hWnd)
-            {
-                NOTIFYICONDATA nid = { sizeof(nid) };
-                nid.hWnd = m_hWnd;
-                nid.uID = IDR_MAINFRAME;
-                nid.uFlags = NIF_INFO;
-                nid.dwInfoFlags = NIIF_WARNING;
-                sprintf_s(nid.szInfo, 256, "CPU: %d°C / GPU: %d°C - 温度过高！", 
-                    m_nCurTemp[0].load(), m_nCurTemp[1].load());
-                strcpy_s(nid.szInfoTitle, 64, "FanControl Pro 温度告警");
-                Shell_NotifyIcon(NIM_MODIFY, &nid);
-            }
-        }
-        return TRUE;
+        NOTIFYICONDATAW nid = { sizeof(nid) };
+        nid.hWnd = m_hWnd;
+        nid.uID = IDR_MAINFRAME;
+        nid.uFlags = NIF_INFO;
+        nid.dwInfoFlags = NIIF_WARNING;
+        StringCchPrintfW(nid.szInfo, _countof(nid.szInfo),
+            L"CPU: %d°C / GPU: %d°C - 温度过高",
+            m_nCurTemp[0].load(), m_nCurTemp[1].load());
+        StringCchPrintfW(nid.szInfoTitle, _countof(nid.szInfoTitle), L"FanControl Pro 温度告警");
+        Shell_NotifyIconW(NIM_MODIFY, &nid);
     }
-    else
-    {
-        m_bTempWarning = FALSE;
-        return FALSE;
-    }
+
+    return m_bTempWarning;
+}
+
+BOOL CCore::IsTemperatureWarning() const
+{
+    return m_bTempWarning;
+}
+
+void CCore::SetWarningSettings(BOOL enabled, int warningTemp, int cooldownMinutes)
+{
+    LockConfig();
+    m_config.DesktopNotifications = !!enabled;
+    m_config.WarningTemp = max(60, min(100, warningTemp));
+    m_config.NotificationCooldownMinutes = max(1, min(60, cooldownMinutes));
+    UnlockConfig();
+    m_config.SaveConfig();
 }
 
 void CCore::ApplyPreset(const char* presetName)

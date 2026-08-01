@@ -99,6 +99,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Core.h" />
+    <ClInclude Include="TemperatureAlertPolicy.h" />
     <ClInclude Include="FanControlPro.h" />
     <ClInclude Include="FanControlProDlg.h" />
     <ClInclude Include="resource.h" />

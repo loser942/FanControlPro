@@ -5,6 +5,7 @@
 #include <memory>
 #include <synchapi.h>
 #include "StartupState.h"
+#include "TemperatureAlertPolicy.h"
 
 constexpr UINT WM_CORE_INIT_RESULT = WM_APP + 2;
 
@@ -162,6 +163,10 @@ public:
     
     int ControlMode;
     int ManualDuty[2];
+
+    int WarningTemp;
+    BOOL DesktopNotifications;
+    int NotificationCooldownMinutes;
     
     char ConfigPath[MAX_PATH];
     
@@ -220,7 +225,7 @@ public:
     
     BOOL m_bTempWarning;
     BOOL m_bThermalEmergency;
-    int m_nWarningTemp;
+    TemperatureAlertPolicy m_temperatureAlertPolicy;
     HWND m_hWnd;
 
 int m_nLastSetDutyEC[2];
@@ -258,6 +263,8 @@ public:
     void SetMaxDutyLimit(int limit);
     void SetControlMode(int mode);
     BOOL CheckTempWarning();
+    BOOL IsTemperatureWarning() const;
+    void SetWarningSettings(BOOL enabled, int warningTemp, int cooldownMinutes);
     void ApplyPreset(const char* presetName);
 
 protected:
