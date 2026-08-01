@@ -35,6 +35,18 @@
 #define IDC_STATIC_GPU_USAGE    1029
 #define IDC_MAX_DUTY_SLIDER     1030
 #define IDC_EDIT_MAX_DUTY       1031
+#define IDC_STATIC_ADVANCED_GROUP 1033
+#define IDC_CHECK_DESKTOP_NOTIFICATIONS 1034
+#define IDC_EDIT_WARNING_TEMP 1035
+#define IDC_EDIT_NOTIFICATION_COOLDOWN 1036
+#define IDC_STATIC_ADVANCED_UPDATE 1037
+#define IDC_STATIC_ADVANCED_TRANSITION 1038
+#define IDC_STATIC_ADVANCED_FORCE 1039
+#define IDC_STATIC_ADVANCED_FREQUENCY 1040
+#define IDC_STATIC_ADVANCED_WARNING 1041
+#define IDC_STATIC_ADVANCED_COOLDOWN 1042
+#define IDC_STATIC_ADVANCED_PRESETS 1043
+#define IDC_STATIC_ADVANCED_MAX_DUTY 1044
 
 // 托盘菜单 ID
 #define IDR_SHOW    11
@@ -99,6 +111,9 @@ HICON m_hIcon;
     CSliderCtrl m_ctlMaxDutySlider;
     CEdit m_ctlMaxDutyEdit;
     CStatic m_ctlStartupStatus;
+    CButton m_ctlDesktopNotifications;
+    CEdit m_ctlWarningTemp;
+    CEdit m_ctlNotificationCooldown;
     
     // 手动模式风扇控件 ID 数组
     int m_nDutyEditCtlID[2][10];
@@ -112,6 +127,7 @@ public:
     afx_msg void OnPaint();
     afx_msg HCURSOR OnQueryDragIcon();
     afx_msg void OnWindowPosChanging(WINDOWPOS* lpwndpos);
+    afx_msg void OnSize(UINT nType, int cx, int cy);
     afx_msg void OnTimer(UINT_PTR nIDEvent);
     afx_msg LRESULT OnShowTask(WPARAM wParam, LPARAM lParam);
     afx_msg LRESULT OnDeferredStartup(WPARAM wParam, LPARAM lParam);
@@ -134,10 +150,12 @@ public:
     
     // 辅助函数
     void UpdateGui(BOOL bFull);
+    void UpdateWarningStatus();
+    void ApplyResponsiveLayout();
     BOOL CheckAndSave();
-    void SetTray(PCSTR string);
+    void SetTray(PCWSTR string);
     void SetAdvancedMode(BOOL bAdvanced);
-    void SetStartupStatus(PCSTR status);
+    void SetStartupStatus(PCWSTR status);
     void SetTakeoverControlsEnabled(BOOL enabled);
     static DWORD WINAPI CoreThread(LPVOID lParam);
     virtual void OnOK();
@@ -146,7 +164,7 @@ public:
     // 开机自启
     BOOL SetAutorunReg(BOOL bWrite, BOOL bAutorun = TRUE);
     BOOL SetAutorunTask(BOOL bWrite, BOOL bAutorun = TRUE);
-    CString ExecuteCmd(CString str);
+    CStringA ExecuteCmd(CStringA str);
     BOOL CreateTaskXml(PCSTR strXmlPath, PCSTR strTargetPath);
     CString GetExePath();
     BOOL CheckInputFrequency(int nFrequency);

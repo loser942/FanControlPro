@@ -374,7 +374,7 @@ void CConfig::Normalize()
      FILE *fp = fopen(path, "wb");
      if (fp == NULL)
      {
-         AfxMessageBox("无法打开导出路径");
+         AfxMessageBox(L"无法打开导出路径");
          return;
      }
      int header[2] = { CONFIG_MAGIC, CONFIG_VERSION };
@@ -389,7 +389,7 @@ void CConfig::Normalize()
      FILE *fp = fopen(path, "rb");
      if (fp == NULL)
      {
-         AfxMessageBox("无法打开导入文件，请检查路径");
+         AfxMessageBox(L"无法打开导入文件，请检查路径");
          return;
      }
      int header[2] = {0};
@@ -397,13 +397,13 @@ void CConfig::Normalize()
          header[0] != CONFIG_MAGIC || header[1] != CONFIG_VERSION)
      {
          fclose(fp);
-         AfxMessageBox("配置文件格式不匹配或版本不兼容，导入失败");
+         AfxMessageBox(L"配置文件格式不匹配或版本不兼容，导入失败");
          return;
      }
      const size_t dataSize = offsetof(CConfig, ConfigPath);
      if (fread(reinterpret_cast<char*>(this), dataSize, 1, fp) != 1)
      {
-         AfxMessageBox("配置文件格式不匹配，导入失败");
+         AfxMessageBox(L"配置文件格式不匹配，导入失败");
           LoadDefault();
       }
       else
