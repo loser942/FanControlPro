@@ -3,6 +3,7 @@
 
 int main()
 {
+    // States before, after, or failing core startup cannot write fans even when authorized.
     assert(!CanEnableTakeover(StartupState::UiReady));
     assert(!CanEnableTakeover(StartupState::CoreStarting));
     assert(CanEnableTakeover(StartupState::CoreReady));
