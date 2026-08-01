@@ -60,7 +60,6 @@ CFanControlProDlg::~CFanControlProDlg() {}
 void CFanControlProDlg::DoDataExchange(CDataExchange* pDX)
 {
     CDialogEx::DoDataExchange(pDX);
-    DDX_Control(pDX, IDC_LIST_STATUS, m_ctlStatus);
     DDX_Control(pDX, IDC_CHECK_TAKEOVER, m_ctlTakeOver);
     DDX_Control(pDX, IDC_CHECK_FORCE, m_ctlForcedCooling);
     DDX_Control(pDX, IDC_CHECK_LINEAR, m_ctlLinear);

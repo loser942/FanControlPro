@@ -5,7 +5,6 @@
 #include <afxcmn.h>
 
 // 控件 ID 定义
-#define IDC_LIST_STATUS         1001
 #define IDC_CHECK_TAKEOVER      1002
 #define IDC_CHECK_FORCE         1003
 #define IDC_CHECK_LINEAR        1004
@@ -73,7 +72,6 @@ HICON m_hIcon;
     int m_nTrayLastUpdate;     // 托盘上次更新时间（替代 static 局部变量）
     
     // 控件变量
-    CListCtrl m_ctlStatus;
     CButton m_ctlTakeOver;
     CButton m_ctlForcedCooling;
     CButton m_ctlLinear;
