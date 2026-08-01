@@ -21,6 +21,9 @@ x64/
 *.ncb
 *.opt
 
+# Isolated implementation worktrees
+.worktrees/
+
 # DLLs (proprietary)
 ClevoEcInfo.dll
 NVGPU_DLL.dll
