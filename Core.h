@@ -18,6 +18,9 @@ constexpr int SMOOTH_STEP_DOWN     = 2;    // 平滑降速步长
 constexpr int EC_REFRESH_TICKS     = 10;   // EC 每秒刷新（10×100ms）
 constexpr int MIDNIGHT_GUARD_MS    = 10000; // 午夜回绕保护阈值
 constexpr int EC_TAKEOVER_THRESHOLD = 15;    // EC 接管检测阈值（duty偏差>15%视为BIOS接管）
+constexpr int MAX_EC_FANS           = 2;     // 本程序只定义了 CPU / GPU 两路映射
+constexpr int MAX_VALID_TEMPERATURE  = 120;   // 超出此范围视为 EC 读取异常
+constexpr int THERMAL_RECOVERY_GAP  = 3;     // 紧急强冷退出的回差，避免阈值附近反复切换
 
 // 温度阈值（constexpr 数组）
 constexpr int TEMP_LIST[TEMP_LEVELS] = { 90, 85, 80, 75, 70, 65, 60, 55, 50, 45 };
@@ -28,6 +31,7 @@ int GetTime(tm *pt = 0, int offset = 0);
 int GetTimeInterval(int a, int b, int *p = 0);
 // 获取 exe 当前路径
 CString GetExePath();
+void WriteDiagnosticLog(PCSTR message);
 
 // EC 数据结构
 struct ECData
@@ -40,7 +44,7 @@ struct ECData
 
 // 温度控制接口函数类型定义
 typedef  BOOL(InitIo)(void);                    // 初始化接口
-typedef  void(SetFanDuty)(int fan_id, int duty); // 设置风扇负载
+typedef  void(FnSetFanDuty)(int fan_id, int duty); // 设置风扇负载
 typedef  int(SetFANDutyAuto)(int fan_id);       // 设置风扇自动
 typedef  ECData(GetTempFanDuty)(int fan_id);    // 获取温度状态
 typedef  int(GetFANCounter)(void);              // 获取风扇数量
@@ -162,6 +166,7 @@ public:
     void LoadDefault();
     void LoadConfig();
     void SaveConfig();
+    void Normalize();
     void ExportConfig(PCSTR path) const;
     void ImportConfig(PCSTR path);
 };
@@ -175,7 +180,7 @@ public:
     
 protected:
     InitIo          *   m_pfnInitIo;
-    SetFanDuty      *   m_pfnSetFanDuty;
+    FnSetFanDuty    *   m_pfnSetFanDuty;
     SetFANDutyAuto  *   m_pfnSetFANDutyAuto;
     GetTempFanDuty  *   m_pfnGetTempFanDuty;
     GetFANCounter   *   m_pfnGetFANCounter;
@@ -189,24 +194,25 @@ public:
     CConfig m_config;
     CGPUInfo m_GpuInfo;
     
-    int m_nCurTemp[2];
+    std::atomic<int> m_nCurTemp[2];
     int m_nLastTemp[2];
     int m_nSetDuty[2];
     int m_nSetDutyLevel[2];
-    int m_nCurDuty[2];
-    int m_nCurRPM[2];
+    std::atomic<int> m_nCurDuty[2];
+    std::atomic<int> m_nCurRPM[2];
     
-    BOOL m_bUpdateRPM;
-    int m_nLastUpdateTime;
-    BOOL m_bForcedCooling;
+    std::atomic<BOOL> m_bUpdateRPM;
+    std::atomic<int> m_nLastUpdateTime;
+    std::atomic<BOOL> m_bForcedCooling;
     BOOL m_bTakeOverStatus;
-    BOOL m_bForcedRefresh;
+    std::atomic<BOOL> m_bForcedRefresh;
     int m_nNextCheckTime;
     BOOL m_bSetPriority;
     
     int m_nSmoothedDuty[2];
     
     BOOL m_bTempWarning;
+    BOOL m_bThermalEmergency;
     int m_nWarningTemp;
     HWND m_hWnd;
 
@@ -219,7 +225,7 @@ int m_nLastSetDutyEC[2];
 
  public:
      void SetHWnd(HWND hWnd) { m_hWnd = hWnd; }
-     void SignalExit() { SetEvent(m_hExitEvent); }
+     void SignalExit() { if (m_hExitEvent) SetEvent(m_hExitEvent); }
 
 public:
     BOOL Init();

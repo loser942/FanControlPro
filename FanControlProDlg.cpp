@@ -36,7 +36,8 @@ CFanControlProDlg::CFanControlProDlg(CWnd* pParent)
     : CDialogEx(CFanControlProDlg::IDD, pParent)
 {
     m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
-    m_bForceHideWindow = TRUE;
+    // 首次启动应显示主窗口；仅在用户主动最小化后通过托盘恢复。
+    m_bForceHideWindow = FALSE;
 m_hCoreThread = NULL;
      m_hSingleInstanceMutex = NULL;
      m_nLastCoreUpdateTime = -1;
@@ -112,17 +113,20 @@ END_MESSAGE_MAP()
 BOOL CFanControlProDlg::OnInitDialog()
  {
      CDialogEx::OnInitDialog();
+     WriteDiagnosticLog("Dialog initialization started");
 
      // ── 单实例互斥 ──
      HANDLE hMutex = CreateMutex(NULL, TRUE, "FanControlPro_SingleInstance");
      if (GetLastError() == ERROR_ALREADY_EXISTS)
      {
+         WriteDiagnosticLog("Single-instance mutex already exists");
          CloseHandle(hMutex);
-         AfxMessageBox("FanControl Pro 已在运行");
+        AfxMessageBox("Another FanControlPro instance is already running.");
          ExitProcess(0);
          return FALSE;
      }
-     m_hSingleInstanceMutex = hMutex;
+      m_hSingleInstanceMutex = hMutex;
+      WriteDiagnosticLog("Single-instance mutex acquired");
 
      CMenu* pSysMenu = GetSystemMenu(FALSE);
      if (pSysMenu != NULL)
@@ -159,13 +163,15 @@ BOOL CFanControlProDlg::OnInitDialog()
      {
          m_core.SetHWnd(this->m_hWnd);
          DWORD dwThreadID = 0;
-         m_hCoreThread = CreateThread(NULL, NULL, CoreThread, this, NULL, &dwThreadID);
-          if (m_hCoreThread == NULL)
-          {
-              AfxMessageBox("无法创建核心监控线程，程序即将退出");
+          m_hCoreThread = CreateThread(NULL, NULL, CoreThread, this, NULL, &dwThreadID);
+           if (m_hCoreThread == NULL)
+           {
+               WriteDiagnosticLog("Core thread creation failed");
+               AfxMessageBox("Cannot create the core monitoring thread.");
               ExitProcess(1);
               return FALSE;
-          }
+           }
+           WriteDiagnosticLog("Core thread created");
      }
      SetTimer(0, 100, NULL);
      m_ctlAutorun.SetCheck(SetAutorunReg(FALSE) || SetAutorunTask(FALSE));
@@ -214,7 +220,7 @@ HCURSOR CFanControlProDlg::OnQueryDragIcon()
     return static_cast<HCURSOR>(m_hIcon);
 }
 
-DWORD CFanControlProDlg::CoreThread(LPVOID lParam)
+DWORD WINAPI CFanControlProDlg::CoreThread(LPVOID lParam)
 {
     CFanControlProDlg * pDlg = (CFanControlProDlg *)lParam;
     pDlg->m_core.Run();
@@ -328,24 +334,24 @@ CloseHandle(m_hCoreThread);
 void CFanControlProDlg::UpdateGui(BOOL bFull)
 {
     char str[256];
-    sprintf_s(str, "CPU: %d°C", m_core.m_nCurTemp[0]);
+    sprintf_s(str, "CPU: %d°C", m_core.m_nCurTemp[0].load());
     m_ctlCpuTempText.SetWindowText(str);
-    m_ctlCpuTempProgress.SetPos(min(100, m_core.m_nCurTemp[0]));
-    sprintf_s(str, "GPU: %d°C", m_core.m_nCurTemp[1]);
+    m_ctlCpuTempProgress.SetPos(min(100, m_core.m_nCurTemp[0].load()));
+    sprintf_s(str, "GPU: %d°C", m_core.m_nCurTemp[1].load());
     m_ctlGpuTempText.SetWindowText(str);
-    m_ctlGpuTempProgress.SetPos(min(100, m_core.m_nCurTemp[1]));
-    if (m_core.m_nCurRPM[0] >= 0)
+    m_ctlGpuTempProgress.SetPos(min(100, m_core.m_nCurTemp[1].load()));
+    if (m_core.m_nCurRPM[0].load() >= 0)
     {
-        sprintf_s(str, "CPU RPM: %d", m_core.m_nCurRPM[0]);
+        sprintf_s(str, "CPU RPM: %d", m_core.m_nCurRPM[0].load());
         m_ctlCpuRpmText.SetWindowText(str);
     }
     else
     {
         m_ctlCpuRpmText.SetWindowText("CPU RPM: --");
     }
-    if (m_core.m_nCurRPM[1] >= 0)
+    if (m_core.m_nCurRPM[1].load() >= 0)
     {
-        sprintf_s(str, "GPU RPM: %d", m_core.m_nCurRPM[1]);
+        sprintf_s(str, "GPU RPM: %d", m_core.m_nCurRPM[1].load());
         m_ctlGpuRpmText.SetWindowText(str);
     }
     else
@@ -357,7 +363,7 @@ void CFanControlProDlg::UpdateGui(BOOL bFull)
      m_ctlGpuUsageText.SetWindowText(str);
      
      // CPU 使用率（占位，MFC 无内建 CPU 使用率 API，显示 CPU 温度代替）
-     sprintf_s(str, "CPU: %d°C", m_core.m_nCurTemp[0]);
+     sprintf_s(str, "CPU: %d°C", m_core.m_nCurTemp[0].load());
      m_ctlCpuUsageText.SetWindowText(str);
     int nControlMode, nManualDuty0, nManualDuty1;
     m_core.LockConfig();
@@ -376,9 +382,9 @@ void CFanControlProDlg::UpdateGui(BOOL bFull)
     }
     
     int fc = m_ctlForcedCooling.GetCheck();
-    if (fc ^ m_core.m_bForcedCooling)
+    if (fc ^ m_core.m_bForcedCooling.load())
     {
-        m_ctlForcedCooling.SetCheck(m_core.m_bForcedCooling);
+        m_ctlForcedCooling.SetCheck(m_core.m_bForcedCooling.load());
     }
     if (!bFull)
         return;
@@ -437,9 +443,9 @@ BOOL CFanControlProDlg::CheckAndSave()
     }
     m_ctlForceTemp.GetWindowTextA(str, 256);
     int nForceTemp = atoi(str);
-    if (nForceTemp < 40 || nForceTemp > 90)
+    if (nForceTemp < 60 || nForceTemp > 95)
     {
-        AfxMessageBox("强冷温度必须为 40-90");
+        AfxMessageBox("强冷温度必须为 60-95");
         m_ctlForceTemp.SetFocus();
         return FALSE;
     }
@@ -486,8 +492,7 @@ void CFanControlProDlg::OnBnClickedButtonLoad()
 
 void CFanControlProDlg::SetTray(PCSTR string)
 {
-    NOTIFYICONDATA nid;
-    nid.cbSize = sizeof(NOTIFYICONDATA);
+    NOTIFYICONDATA nid = { sizeof(NOTIFYICONDATA) };
     nid.hWnd = this->m_hWnd;
     nid.uID = IDR_MAINFRAME;
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
@@ -517,22 +522,21 @@ LRESULT CFanControlProDlg::OnShowTask(WPARAM wParam, LPARAM lParam)
     {
     case WM_RBUTTONUP:
     {
-        LPPOINT lpoint = new tagPOINT;
-        ::GetCursorPos(lpoint);
+        POINT point = {};
+        ::GetCursorPos(&point);
         CMenu menu;
         menu.CreatePopupMenu();
         menu.AppendMenu(MFT_STRING, IDR_SHOW, m_bWindowVisible ? "隐藏" : "显示");
-        menu.AppendMenu(MFT_STRING, IDR_FORCED, m_core.m_bForcedCooling ? "退出强冷" : "强冷模式");
+        menu.AppendMenu(MFT_STRING, IDR_FORCED, m_core.m_bForcedCooling.load() ? "退出强冷" : "强冷模式");
         menu.AppendMenu(MFT_SEPARATOR);
         menu.AppendMenu(MFT_STRING, IDR_EXIT, "退出");
         SetForegroundWindow();
-        int xx = TrackPopupMenu(menu, TPM_RETURNCMD, lpoint->x, lpoint->y, NULL, this->m_hWnd, NULL);
+        int xx = TrackPopupMenu(menu, TPM_RETURNCMD, point.x, point.y, NULL, this->m_hWnd, NULL);
         if (xx == IDR_SHOW) OnCancel();
-        else if (xx == IDR_FORCED) m_core.EnableForcedCooling(!m_core.m_bForcedCooling);
+        else if (xx == IDR_FORCED) m_core.EnableForcedCooling(!m_core.m_bForcedCooling.load());
         else if (xx == IDR_EXIT) OnOK();
 HMENU hmenu = menu.Detach();
          if (hmenu) DestroyMenu(hmenu);
-        delete lpoint;
     }break;
     case WM_LBUTTONDBLCLK:
     {
@@ -544,9 +548,9 @@ HMENU hmenu = menu.Detach();
         if (m_nTrayLastUpdate != m_core.m_nLastUpdateTime)
         {
             char str[128];
-            sprintf_s(str, "CPU: %d°C, %d%%\nGPU: %d°C, %d%%", 
-                m_core.m_nCurTemp[0], m_core.m_nCurDuty[0], 
-                m_core.m_nCurTemp[1], m_core.m_nCurDuty[1]);
+            sprintf_s(str, "CPU: %d°C, %d%%\nGPU: %d°C, %d%%",
+                m_core.m_nCurTemp[0].load(), m_core.m_nCurDuty[0].load(),
+                m_core.m_nCurTemp[1].load(), m_core.m_nCurDuty[1].load());
             SetTray(str);
             m_nTrayLastUpdate = m_core.m_nLastUpdateTime;
         }
@@ -564,20 +568,11 @@ void CFanControlProDlg::OnBnClickedCheckTakeover()
 
 void CFanControlProDlg::OnBnClickedCheckForce()
  {
-     m_core.LockConfig();
-     m_core.m_bForcedCooling = m_ctlForcedCooling.GetCheck();
-     if (m_core.m_bForcedCooling)
-     {
-         m_ctlMode.SetCurSel(2);
-         m_core.m_config.ControlMode = 2;
-     }
-     else
-     {
-         // 取消强冷时恢复到自动模式
-         m_ctlMode.SetCurSel(0);
-         m_core.m_config.ControlMode = 0;
-     }
-     m_core.UnlockConfig();
+      m_core.EnableForcedCooling(m_ctlForcedCooling.GetCheck());
+      m_core.LockConfig();
+      const int controlMode = m_core.m_config.ControlMode;
+      m_core.UnlockConfig();
+      m_ctlMode.SetCurSel(controlMode);
  }
 
 void CFanControlProDlg::OnBnClickedCheckLinear()

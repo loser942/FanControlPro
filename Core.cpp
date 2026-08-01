@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "Core.h"
+#include "resource.h"
 #include <cmath>
 using std::max;
 using std::min;
@@ -208,6 +209,8 @@ BOOL CGPUInfo::LockFrequency(int frequency)
     }
     else if (frequency > m_nStandardFrequency)
     {
+        if (m_nGraphicsRangeMax <= 0)
+            return FALSE;
         GpuOverclock = frequency - m_nStandardFrequency;
         MemOverclock = GpuOverclock * m_nMemoryRangeMax / m_nGraphicsRangeMax;
     }
@@ -252,8 +255,10 @@ void CConfig::LoadDefault()
     TransitionTemp = 3;
     UpdateInterval = 2;
     Linear = FALSE;
-    TakeOver = TRUE;
-    ForceTemp = 55;
+    // 首次启动保持 BIOS 控制，用户确认传感器读数正常后再显式启用接管。
+    TakeOver = FALSE;
+    // 55°C 会让 13500H/4060 在日常使用中几乎一直处于全速；设为安全而实用的默认值。
+    ForceTemp = 85;
     MaxDutyLimit = MAX_FAN_DUTY_LIMIT;
     
     LockGPUFrequency = FALSE;
@@ -262,6 +267,39 @@ void CConfig::LoadDefault()
     ControlMode = 0;
     ManualDuty[0] = 50;
     ManualDuty[1] = 50;
+}
+
+void WriteDiagnosticLog(PCSTR message)
+{
+    CString path = GetExePath() + "FanControlPro.debug.log";
+    FILE* file = fopen(path, "at");
+    if (!file)
+        return;
+
+    SYSTEMTIME now = {};
+    GetLocalTime(&now);
+    fprintf(file, "%04u-%02u-%02u %02u:%02u:%02u %s\n", now.wYear, now.wMonth,
+        now.wDay, now.wHour, now.wMinute, now.wSecond, message);
+    fclose(file);
+}
+
+void CConfig::Normalize()
+{
+    TransitionTemp = max(0, min(10, TransitionTemp));
+    UpdateInterval = max(1, min(5, UpdateInterval));
+    ForceTemp = max(60, min(95, ForceTemp));
+    MaxDutyLimit = max(0, min(100, MaxDutyLimit));
+    ControlMode = max(0, min(2, ControlMode));
+    Linear = !!Linear;
+    TakeOver = !!TakeOver;
+    LockGPUFrequency = !!LockGPUFrequency;
+    GPUFrequency = max(0, GPUFrequency);
+    for (int fan = 0; fan < MAX_EC_FANS; ++fan)
+    {
+        ManualDuty[fan] = max(0, min(100, ManualDuty[fan]));
+        for (int level = 0; level < TEMP_LEVELS; ++level)
+            DutyList[fan][level] = max(0, min(100, DutyList[fan][level]));
+    }
 }
 
 #define CONFIG_MAGIC 0x46504346
@@ -288,10 +326,14 @@ void CConfig::LoadDefault()
      const size_t configDataSize = offsetof(CConfig, ConfigPath);
      int ok = fread(reinterpret_cast<char*>(this), configDataSize, 1, fp);
      fclose(fp);
-if (ok != 1)
+ if (ok != 1)
      {
          LoadDefault();
-         SaveConfig();
+          SaveConfig();
+      }
+     else
+     {
+         Normalize();
      }
  }
 
@@ -350,8 +392,12 @@ if (ok != 1)
      if (fread(reinterpret_cast<char*>(this), dataSize, 1, fp) != 1)
      {
          AfxMessageBox("配置文件格式不匹配，导入失败");
-         LoadDefault();
-     }
+          LoadDefault();
+      }
+      else
+      {
+          Normalize();
+      }
      fclose(fp);
  }
 
@@ -393,6 +439,7 @@ CCore::CCore()
     m_nSmoothedDuty[1] = 0;
     
     m_bTempWarning = FALSE;
+    m_bThermalEmergency = FALSE;
     m_nWarningTemp = 90;
     m_hWnd = NULL;
 
@@ -419,19 +466,26 @@ BOOL CCore::Init()
     if (m_hInstDLL)
         return TRUE;
 
+    WriteDiagnosticLog("Core.Init started");
     TRACE0("内核开始初始化\n");
     m_nInit = -1;
     
     CString dllpth = GetExePath() + "\\ClevoEcInfo.dll";
     if (!m_hInstDLL.Load(dllpth))
     {
-        AfxMessageBox("无法加载 ClevoEcInfo.dll");
+        char logLine[128] = {};
+        sprintf_s(logLine, "ClevoEcInfo.dll load failed. LastError=%lu", GetLastError());
+        WriteDiagnosticLog(logLine);
+        CString message;
+        message.Format("Cannot load ClevoEcInfo.dll. Win32 error: %lu", GetLastError());
+        AfxMessageBox(message);
         return FALSE;
     }
+    WriteDiagnosticLog("ClevoEcInfo.dll loaded");
 
     HMODULE hDll = m_hInstDLL.Get();
     m_pfnInitIo = (InitIo *)::GetProcAddress(hDll, "InitIo");
-    m_pfnSetFanDuty = (SetFanDuty *)::GetProcAddress(hDll, "SetFanDuty");
+    m_pfnSetFanDuty = (FnSetFanDuty *)::GetProcAddress(hDll, "SetFanDuty");
     m_pfnSetFANDutyAuto = (SetFANDutyAuto *)::GetProcAddress(hDll, "SetFanDutyAuto");
     m_pfnGetTempFanDuty = (GetTempFanDuty *)::GetProcAddress(hDll, "GetTempFanDuty");
     m_pfnGetFANCounter = (GetFANCounter *)::GetProcAddress(hDll, "GetFanCount");
@@ -439,11 +493,19 @@ BOOL CCore::Init()
     m_pfnGetFANRPM[0] = (GetFanRpm *)::GetProcAddress(hDll, "GetCpuFanRpm");
     m_pfnGetFANRPM[1] = (GetFanRpm *)::GetProcAddress(hDll, "GetGpuFanRpm");
 
-    if (m_pfnInitIo == NULL || m_pfnInitIo() != 1 ||
-         m_pfnGetTempFanDuty == NULL)
+    const BOOL hasRequiredExports = m_pfnInitIo != NULL && m_pfnSetFanDuty != NULL &&
+        m_pfnSetFANDutyAuto != NULL && m_pfnGetTempFanDuty != NULL;
+    const BOOL initOk = hasRequiredExports && m_pfnInitIo() == 1;
+    char logLine[160] = {};
+    sprintf_s(logLine, "EC exports=%d InitIo=%d LastError=%lu", hasRequiredExports, initOk, GetLastError());
+    WriteDiagnosticLog(logLine);
+    if (!initOk)
     {
         m_hInstDLL.Close();
-        AfxMessageBox("EC 接口初始化失败");
+        CString message;
+        message.Format("EC initialization failed. Exports: %d, InitIo: %d, Win32 error: %lu",
+            hasRequiredExports, initOk, GetLastError());
+        AfxMessageBox(message);
         return FALSE;
     }
 
@@ -481,14 +543,11 @@ void CCore::Run()
     if (m_nInit == 1)
     {
         TRACE0("内核开始运行\n");
-        int curtime;
+        ULONGLONG nextCheckTick = 0;
         int ecRefreshTick = 0;
         while (!m_nExit)
         {
-            curtime = GetTime();
-            
-            if (m_nNextCheckTime > 0 && curtime < m_nNextCheckTime - MIDNIGHT_GUARD_MS)
-                m_bForcedRefresh = TRUE;
+            const ULONGLONG now = GetTickCount64();
             
             BOOL  bTakeOver;
             int   nUpdateInterval;
@@ -504,17 +563,16 @@ void CCore::Run()
                     SetFanDuty();
             }
             
-            if (curtime >= m_nNextCheckTime || m_bForcedRefresh)
+            if (now >= nextCheckTick || m_bForcedRefresh.exchange(FALSE))
             {
                 Work();
-                m_nLastUpdateTime = curtime;
-                m_nNextCheckTime = GetTime(NULL, nUpdateInterval);
-                m_bForcedRefresh = FALSE;
+                m_nLastUpdateTime = static_cast<int>(now / 1000);
+                nextCheckTick = now + static_cast<ULONGLONG>(nUpdateInterval) * 1000;
                 
                 if (!m_bSetPriority)
                 {
                     m_bSetPriority = TRUE;
-                    SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+                    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
                 }
 }
              WaitForSingleObject(m_hExitEvent, 100);
@@ -531,21 +589,30 @@ void CCore::Work()
     CheckTempWarning();
     VerifyAndReclaim();
     
-CConfig cfgSnap;
+    CConfig cfgSnap;
      BOOL bForced;
      EnterCriticalSection(&m_csConfig);
      cfgSnap = m_config;
-     bForced = m_bForcedCooling;
-     LeaveCriticalSection(&m_csConfig);
-     
-     if (bForced)
-    {
-        m_nSetDuty[0] = FORCED_COOLING_DUTY;
+      bForced = m_bForcedCooling.load();
+      LeaveCriticalSection(&m_csConfig);
+
+      const int hottestTemp = max(m_nCurTemp[0].load(), m_nCurTemp[1].load());
+      if (!m_bThermalEmergency)
+          m_bThermalEmergency = hottestTemp >= cfgSnap.ForceTemp;
+      else
+          m_bThermalEmergency = hottestTemp >= cfgSnap.ForceTemp - THERMAL_RECOVERY_GAP;
+
+      if (bForced || m_bThermalEmergency)
+     {
+         m_nSetDuty[0] = FORCED_COOLING_DUTY;
         m_nSetDutyLevel[0] = 10;
-        m_nSetDuty[1] = FORCED_COOLING_DUTY;
-        m_nSetDutyLevel[1] = 10;
-        SetFanDuty();
-        return;
+         m_nSetDuty[1] = FORCED_COOLING_DUTY;
+         m_nSetDutyLevel[1] = 10;
+         // 紧急温度不能受 4% 平滑升速限制，否则最高需近一分钟才达到满速。
+         m_nSmoothedDuty[0] = FORCED_COOLING_DUTY;
+         m_nSmoothedDuty[1] = FORCED_COOLING_DUTY;
+         SetFanDuty();
+         return;
     }
     
     if (cfgSnap.TakeOver)
@@ -563,13 +630,16 @@ void CCore::Update()
  {
     if (!m_pfnGetTempFanDuty) return;
      ECData data;
-    int TempErr = 0;
+     int TempErr = 0;
     
     for (int i = 0; i < 2; i++)
     {
         data = m_pfnGetTempFanDuty(i + 1);
+        const int sampledTemp = static_cast<int>(data.Remote);
+        const int previousTemp = m_nCurTemp[i].load();
 // 温度异常检测（最多重试 2 次，3 次异常则保留旧温度）
-         if (this->m_nCurTemp[i] != 0 && abs(data.Remote - this->m_nCurTemp[i]) > 30)
+         if (sampledTemp == 0 || sampledTemp > MAX_VALID_TEMPERATURE ||
+             (previousTemp != 0 && abs(sampledTemp - previousTemp) > 30))
          {
              if (TempErr++ < 2)
              {
@@ -578,16 +648,16 @@ void CCore::Update()
                  continue;
              }
              // 连续 3 次异常，放弃更新，保留旧温度
-             TRACE("温度传感器异常：风扇%d 旧值=%d 读取=%d，已跳过\n", i, m_nCurTemp[i], data.Remote);
+              TRACE("温度传感器异常：风扇%d 旧值=%d 读取=%d，已跳过\n", i, previousTemp, sampledTemp);
              TempErr = 0;
              continue;
          }
         
-        this->m_nLastTemp[i] = this->m_nCurTemp[i];
-        this->m_nCurTemp[i] = data.Remote;
+         this->m_nLastTemp[i] = previousTemp;
+         this->m_nCurTemp[i] = sampledTemp;
         this->m_nCurDuty[i] = int(data.FanDuty * 100 / double(EC_FAN_DUTY_MAX) + 0.5);
 
-        if (m_bUpdateRPM && m_pfnGetFANRPM[i] != NULL)
+        if (m_bUpdateRPM.load() && m_pfnGetFANRPM[i] != NULL)
         {
             int val = m_pfnGetFANRPM[i]();
             if (val == 0)
@@ -604,7 +674,7 @@ void CCore::Update()
         TempErr = 0;
     }
     
-    if (m_bUpdateRPM)
+    if (m_bUpdateRPM.load())
         m_GpuInfo.Update();
 }
 
@@ -638,8 +708,8 @@ void CCore::CalcLinearDuty(const CConfig& cfg)
 
     for (int i = 0; i < 2; i++)
     {
-        m_nLastTemp[i] = max(m_nLastTemp[i], m_nCurTemp[i]);
-        m_nLastTemp[i] = min(m_nLastTemp[i], m_nCurTemp[i] + cfg.TransitionTemp);
+        m_nLastTemp[i] = max(m_nLastTemp[i], m_nCurTemp[i].load());
+        m_nLastTemp[i] = min(m_nLastTemp[i], m_nCurTemp[i].load() + cfg.TransitionTemp);
 
         int j = m_nLastTemp[i];
 
@@ -738,7 +808,7 @@ void CCore::ResetFan()
     {
         int fanCount = 2;
         if (m_pfnGetFANCounter)
-            fanCount = max(2, m_pfnGetFANCounter());
+            fanCount = min(MAX_EC_FANS, max(1, m_pfnGetFANCounter()));
         for (int i = 0; i < fanCount; i++)
             m_pfnSetFANDutyAuto(i + 1);
         m_bTakeOverStatus = FALSE;
@@ -784,7 +854,7 @@ void CCore::SetFanDuty()
 
     int fanCount = 2;
     if (m_pfnGetFANCounter)
-        fanCount = max(2, m_pfnGetFANCounter());
+        fanCount = min(MAX_EC_FANS, max(1, m_pfnGetFANCounter()));
 
     int duty;
     for (int i = 0; i < fanCount; i++)
@@ -856,7 +926,7 @@ void CCore::SetControlMode(int mode)
 
 BOOL CCore::CheckTempWarning()
 {
-    if (m_nCurTemp[0] >= m_nWarningTemp || m_nCurTemp[1] >= m_nWarningTemp)
+    if (m_nCurTemp[0].load() >= m_nWarningTemp || m_nCurTemp[1].load() >= m_nWarningTemp)
     {
         if (!m_bTempWarning)
         {
@@ -869,7 +939,7 @@ BOOL CCore::CheckTempWarning()
                 nid.uFlags = NIF_INFO;
                 nid.dwInfoFlags = NIIF_WARNING;
                 sprintf_s(nid.szInfo, 256, "CPU: %d°C / GPU: %d°C - 温度过高！", 
-                    m_nCurTemp[0], m_nCurTemp[1]);
+                    m_nCurTemp[0].load(), m_nCurTemp[1].load());
                 strcpy_s(nid.szInfoTitle, 64, "FanControl Pro 温度告警");
                 Shell_NotifyIcon(NIM_MODIFY, &nid);
             }
@@ -911,7 +981,7 @@ void CCore::ApplyPreset(const char* presetName)
     }
     else if (strcmp(presetName, "Balanced") == 0)
     {
-        LoadDefault();
+        m_config.LoadDefault();
     }
     
     LeaveCriticalSection(&m_csConfig);

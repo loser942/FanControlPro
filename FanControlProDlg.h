@@ -51,9 +51,7 @@ public:
     virtual ~CFanControlProDlg();
 
     // 对话框数据
-#ifdef AFX_DESIGN_TIME
     enum { IDD = IDD_FANCONTROLPRO_DIALOG };
-#endif
 
 protected:
     virtual void DoDataExchange(CDataExchange* pDX);
@@ -138,7 +136,7 @@ public:
     BOOL CheckAndSave();
     void SetTray(PCSTR string);
     void SetAdvancedMode(BOOL bAdvanced);
-    static DWORD CoreThread(LPVOID lParam);
+    static DWORD WINAPI CoreThread(LPVOID lParam);
     virtual void OnOK();
     virtual void OnCancel();
     
