@@ -1,39 +1,39 @@
-# FanControlPro Startup Stability Design
+# FanControlPro 启动稳定性设计
 
-## Goal
+## 目标
 
-Make the local Win32 build start predictably on the target Thunderobot / Clevo system before expanding fan-control features. A startup failure must never take over fan control.
+在扩展风扇控制功能之前，确保本地 Win32 构建版本能在目标 Thunderobot / Clevo 系统上稳定、可预测地启动。启动失败时绝不能接管风扇控制。
 
-## Evidence
+## 已确认的证据
 
-- The signed `ClevoEcInfo.dll` is x86 and exposes every required function.
-- The installed `zntport` driver is running.
-- A read-only x86 probe returns `InitIo=1`, fan count 2, and valid temperature / duty values.
-- The application debug log reaches single-instance mutex acquisition but does not yet identify the following startup boundary.
+- 已签名的 `ClevoEcInfo.dll` 为 x86 架构，且导出了所有必需函数。
+- 已安装的 `zntport` 驱动正在运行。
+- 只读 x86 探针返回 `InitIo=1`、风扇数量为 2，以及有效的温度和占空比数值。
+- 应用调试日志已记录到获取单实例互斥锁，但尚未定位其后的启动边界。
 
-## Startup Model
+## 启动模型
 
-1. Create and show the dialog without waiting for optional services.
-2. Initialize controls and present a visible startup status.
-3. Read configuration and initialize the EC worker after the UI is usable.
-4. Run optional startup-task and GPU capability checks outside the critical startup path.
-5. Enable fan takeover only after a successful EC initialization and an explicit user action.
+1. 不等待可选服务，直接创建并显示对话框。
+2. 初始化控件，并显示可见的启动状态。
+3. 在界面可用后读取配置并初始化 EC 工作线程。
+4. 在关键启动路径之外执行可选的启动任务和 GPU 能力检查。
+5. 仅在 EC 初始化成功且用户明确执行操作后，才启用风扇接管。
 
-## Failure Handling
+## 失败处理
 
-- Every startup boundary writes an ASCII-safe log entry with relevant Win32 error data.
-- Failures appear in the dialog status area; message boxes are not the sole diagnostic channel.
-- An EC or worker failure leaves BIOS fan control active, disables takeover controls, and permits a normal application exit.
-- GPU frequency locking remains disabled by default and cannot block startup.
+- 每个启动边界均应写入 ASCII 安全的日志条目，并附带相关的 Win32 错误数据。
+- 失败信息应显示在对话框的状态区域；消息框不能作为唯一的诊断渠道。
+- EC 或工作线程失败时，必须保持 BIOS 风扇控制生效、禁用接管控件，并允许应用正常退出。
+- GPU 频率锁定默认保持禁用，且不能阻塞启动。
 
-## Scope
+## 范围
 
-This iteration changes startup sequencing, observability, and failure containment. It does not change the EC register mapping, install drivers, publish upstream changes, or add new fan-curve features.
+本轮仅调整启动时序、可观测性与故障隔离。不会变更 EC 寄存器映射、安装驱动、向上游发布改动，或新增风扇曲线功能。
 
-## Verification
+## 验证标准
 
-- Automated tests cover startup-state transitions and prevent a failed EC initialization from enabling takeover.
-- The Win32 Release build succeeds.
-- A fresh launch produces ordered log entries for each startup phase.
-- On the target system, the window appears before optional checks complete and shows a readable status.
-- A successful EC probe remains read-only until the user explicitly enables takeover.
+- 自动化测试覆盖启动状态转换，并确保 EC 初始化失败时不会启用接管。
+- Win32 Release 构建成功。
+- 全新启动会为各个启动阶段生成有序日志条目。
+- 在目标系统上，可选检查完成前窗口即可显示，并展示可读的状态。
+- EC 探针即使成功也必须保持只读，直至用户明确启用接管。
