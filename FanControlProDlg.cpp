@@ -4,6 +4,7 @@
 #include "stdafx.h"
 #include "FanControlPro.h"
 #include "FanControlProDlg.h"
+#include "DialogLayoutPolicy.h"
 #include "afxdialogex.h"
 #include <strsafe.h>
 
@@ -47,6 +48,7 @@ m_hCoreThread = NULL;
     m_bAdvancedMode = FALSE;
     m_nWindowSize[0] = 0;
     m_nWindowSize[1] = 0;
+    m_nCompactWindowHeight = 0;
     m_nCheckThreadCount = 0;
     m_bLastVisible = FALSE;
     m_bTrayAdded = FALSE;
@@ -155,6 +157,15 @@ BOOL CFanControlProDlg::OnInitDialog()
      this->GetWindowRect(rect);
      m_nWindowSize[0] = rect.Width();
      m_nWindowSize[1] = rect.Height();
+     if (CWnd* advancedGroup = GetDlgItem(IDC_STATIC_ADVANCED_GROUP))
+     {
+         CRect advancedRect;
+         advancedGroup->GetWindowRect(&advancedRect);
+         ScreenToClient(&advancedRect);
+         CRect client;
+         GetClientRect(&client);
+         m_nCompactWindowHeight = advancedRect.top + (rect.Height() - client.Height());
+     }
      m_ctlMode.AddString(L"自动模式");
      m_ctlMode.AddString(L"手动模式");
      m_ctlMode.AddString(L"强冷模式");
@@ -717,6 +728,7 @@ void CFanControlProDlg::OnBnClickedCheckLinear()
 
 void CFanControlProDlg::SetAdvancedMode(BOOL bAdvanced)
 {
+    const int showAdvanced = DialogLayoutPolicy::ShowAdvancedCommands(bAdvanced) ? SW_SHOW : SW_HIDE;
     const int advancedControls[] = {
         IDC_STATIC_ADVANCED_GROUP, IDC_EDIT_INTERVAL, IDC_EDIT_TRANSITION,
         IDC_EDIT_FORCE_TEMP, IDC_CHECK_LINEAR, IDC_CHECK_LOCK_GPU,
@@ -727,24 +739,26 @@ void CFanControlProDlg::SetAdvancedMode(BOOL bAdvanced)
         IDC_STATIC_ADVANCED_TRANSITION, IDC_STATIC_ADVANCED_FORCE,
         IDC_STATIC_ADVANCED_FREQUENCY, IDC_STATIC_ADVANCED_WARNING,
         IDC_STATIC_ADVANCED_COOLDOWN, IDC_STATIC_ADVANCED_PRESETS,
-        IDC_STATIC_ADVANCED_MAX_DUTY
+        IDC_STATIC_ADVANCED_MAX_DUTY, IDC_BUTTON_LOAD, IDC_BUTTON_SAVE,
+        IDC_BUTTON_RESET
     };
     for (int id : advancedControls)
     {
         CWnd* control = GetDlgItem(id);
-        if (control) control->ShowWindow(bAdvanced ? SW_SHOW : SW_HIDE);
+        if (control) control->ShowWindow(showAdvanced);
     }
 
-    if (m_nWindowSize[0] > 0 && m_bAdvancedMode != bAdvanced)
+    const int targetHeight = DialogLayoutPolicy::SelectWindowHeight(
+        bAdvanced, m_nCompactWindowHeight, m_nWindowSize[1]);
+    if (m_nWindowSize[0] > 0 && targetHeight > 0)
     {
         CRect rect;
         GetWindowRect(&rect);
-        MoveWindow(rect.left, rect.top, m_nWindowSize[0],
-            m_nWindowSize[1] + (bAdvanced ? 190 : 0), TRUE);
+        MoveWindow(rect.left, rect.top, m_nWindowSize[0], targetHeight, TRUE);
     }
     m_bAdvancedMode = bAdvanced;
-    GetDlgItem(IDC_BUTTON_ADVANCED)->SetWindowTextW(bAdvanced ? L"收起高级设置" : L"高级设置");
-    ApplyResponsiveLayout();
+    if (CWnd* advancedButton = GetDlgItem(IDC_BUTTON_ADVANCED))
+        advancedButton->SetWindowTextW(bAdvanced ? L"收起高级设置" : L"高级设置");
 }
 
 void CFanControlProDlg::OnBnClickedButtonAdvanced()
@@ -754,43 +768,12 @@ void CFanControlProDlg::OnBnClickedButtonAdvanced()
 
 void CFanControlProDlg::ApplyResponsiveLayout()
 {
-    if (!GetSafeHwnd())
-        return;
-
-    CRect client;
-    GetClientRect(&client);
-    const int margin = 12;
-    const int gap = 12;
-    const int statusHeight = 210;
-    const int columnWidth = (client.Width() - margin * 2 - gap) / 2;
-    const int buttonY = client.bottom - 34;
-    if (CWnd* loadButton = GetDlgItem(IDC_BUTTON_LOAD))
-        loadButton->MoveWindow(client.right - 210, buttonY, 60, 24);
-    if (CWnd* saveButton = GetDlgItem(IDC_BUTTON_SAVE))
-        saveButton->MoveWindow(client.right - 140, buttonY, 60, 24);
-    if (CWnd* resetButton = GetDlgItem(IDC_BUTTON_RESET))
-        resetButton->MoveWindow(client.right - 70, buttonY, 60, 24);
-    if (CWnd* advancedGroup = GetDlgItem(IDC_STATIC_ADVANCED_GROUP))
-        advancedGroup->MoveWindow(margin, margin + statusHeight + gap,
-            client.Width() - margin * 2, m_bAdvancedMode ? client.bottom - buttonY - 22 : 0);
+    // 资源控件使用对话框单位，避免按物理像素重排造成高 DPI 截断。
 }
 
 void CFanControlProDlg::OnSize(UINT nType, int cx, int cy)
 {
     CDialogEx::OnSize(nType, cx, cy);
-    if (GetSafeHwnd())
-    {
-        const int minimumWidth = 620;
-        const int minimumHeight = m_bAdvancedMode ? 620 : 420;
-        if (cx < minimumWidth || cy < minimumHeight)
-        {
-            CRect rect;
-            GetWindowRect(&rect);
-            SetWindowPos(nullptr, 0, 0, max(rect.Width(), minimumWidth),
-                max(rect.Height(), minimumHeight), SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-        }
-        ApplyResponsiveLayout();
-    }
 }
 
 void CFanControlProDlg::OnBnClickedCheckAutorun()

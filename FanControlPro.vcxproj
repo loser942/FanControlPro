@@ -98,6 +98,7 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="DialogLayoutPolicy.h" />
     <ClInclude Include="ControlVerificationState.h" />
     <ClInclude Include="Core.h" />
     <ClInclude Include="StartupState.h" />

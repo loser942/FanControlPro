@@ -79,6 +79,7 @@ HICON m_hIcon;
     BOOL m_bWindowVisible;
     BOOL m_bAdvancedMode;
     int m_nWindowSize[2];
+    int m_nCompactWindowHeight;
     BOOL m_bForceHideWindow;
     int m_nCheckThreadCount;   // 线程检查计数（替代 static 局部变量）
     BOOL m_bLastVisible;       // 上次窗口可见状态（替代 static 局部变量）
