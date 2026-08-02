@@ -101,6 +101,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="DialogLayoutPolicy.h" />
+    <ClInclude Include="DiagnosticReport.h" />
     <ClInclude Include="ControlVerificationState.h" />
     <ClInclude Include="AutorunCommandPolicy.h" />
     <ClInclude Include="ConfigPersistence.h" />
