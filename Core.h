@@ -6,6 +6,7 @@
 #include <synchapi.h>
 #include "StartupState.h"
 #include "ControlVerificationState.h"
+#include "TakeoverVerificationPolicy.h"
 #include "TemperatureAlertPolicy.h"
 
 constexpr UINT WM_CORE_INIT_RESULT = WM_APP + 2;
@@ -220,8 +221,9 @@ public:
     std::atomic<StartupState> m_startupState{ StartupState::UiReady };
     std::atomic_bool m_userTakeoverAuthorized{ false };
     std::atomic_bool m_fansTouched{ false };
-    std::atomic_bool m_fanDutyWritten{ false };
-    std::atomic_bool m_readbackMatches{ false };
+    std::atomic_bool m_takeoverSessionResetRequested{ false };
+    std::atomic_bool m_resetFansRequested{ false };
+    std::atomic<ControlVerification> m_controlVerification{ ControlVerification::BiosControl };
     std::atomic<int> m_nTargetDuty[2];
     std::atomic<int> m_nReadbackDuty[2];
     std::atomic<DWORD> m_initError{ ERROR_SUCCESS };
@@ -230,6 +232,7 @@ public:
     
     BOOL m_bTempWarning;
     BOOL m_bThermalEmergency;
+    TakeoverVerificationPolicy m_takeoverVerification{ EC_TAKEOVER_THRESHOLD, 3000, 2, 5000, 3 };
     TemperatureAlertPolicy m_temperatureAlertPolicy;
     HWND m_hWnd;
 

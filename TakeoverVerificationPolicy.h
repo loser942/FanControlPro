@@ -72,6 +72,18 @@ public:
         return state_ == ControlVerification::Fault;
     }
 
+    void Reset()
+    {
+        cpuTarget_ = 0;
+        gpuTarget_ = 0;
+        matchingReadbacks_ = 0;
+        lastWriteMs_ = 0;
+        reclaimWindowStartMs_ = 0;
+        reclaimCount_ = 0;
+        hasWrite_ = false;
+        state_ = ControlVerification::RequestingTakeover;
+    }
+
     ControlVerification State() const
     {
         return state_;

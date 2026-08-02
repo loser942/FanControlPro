@@ -4,12 +4,6 @@
 
 int main()
 {
-    assert(EvaluateControlVerification(StartupState::CoreReady, false, false, false) == ControlVerification::BiosControl);
-    assert(EvaluateControlVerification(StartupState::CoreReady, true, false, false) == ControlVerification::RequestingTakeover);
-    assert(EvaluateControlVerification(StartupState::CoreReady, true, true, true) == ControlVerification::Active);
-    assert(EvaluateControlVerification(StartupState::CoreReady, true, true, false) == ControlVerification::Fault);
-    assert(EvaluateControlVerification(StartupState::CoreFailed, true, true, true) == ControlVerification::Fault);
-
     TakeoverVerificationPolicy policy(15, 3000, 2, 5000, 3);
     policy.RecordWrite(60, 65, 100);
     assert(policy.State() == ControlVerification::RequestingTakeover);
@@ -26,6 +20,22 @@ int main()
     assert(policy.CanReclaim(600));
     assert(!policy.CanReclaim(700));
     assert(policy.IsFaulted());
+
+    // A user can explicitly end a faulted takeover session and start a new one.
+    policy.Reset();
+    assert(!policy.IsFaulted());
+    policy.RecordWrite(80, 80, 800);
+    policy.RecordReadback(80, 80, 900);
+    assert(policy.State() == ControlVerification::RequestingTakeover);
+    policy.RecordReadback(80, 80, 1000);
+    assert(policy.State() == ControlVerification::Active);
+
+    TakeoverVerificationPolicy reclaimWindowPolicy(15, 3000, 2, 5000, 3);
+    assert(reclaimWindowPolicy.CanReclaim(100));
+    assert(reclaimWindowPolicy.CanReclaim(200));
+    assert(reclaimWindowPolicy.CanReclaim(5200));
+    assert(reclaimWindowPolicy.CanReclaim(5300));
+    assert(!reclaimWindowPolicy.IsFaulted());
 
     TakeoverVerificationPolicy targetChangePolicy(15, 3000, 2, 5000, 3);
     targetChangePolicy.RecordWrite(50, 50, 100);

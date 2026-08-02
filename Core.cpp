@@ -445,8 +445,6 @@ CCore::CCore()
     m_nLastUpdateTime = GetTime(0, -5);
     m_bForcedCooling = FALSE;
     m_bTakeOverStatus = FALSE;
-    m_fanDutyWritten = false;
-    m_readbackMatches = false;
     m_bForcedRefresh = FALSE;
     m_nNextCheckTime = 0;
     m_bSetPriority = FALSE;
@@ -562,6 +560,16 @@ void CCore::Run()
         int ecRefreshTick = 0;
         while (!m_nExit)
         {
+            if (m_takeoverSessionResetRequested.exchange(false))
+            {
+                m_takeoverVerification.Reset();
+                m_controlVerification = m_userTakeoverAuthorized.load()
+                    ? ControlVerification::RequestingTakeover
+                    : ControlVerification::BiosControl;
+            }
+            if (m_resetFansRequested.exchange(false))
+                ResetFan();
+
             const ULONGLONG now = GetTickCount64();
             
             BOOL  bTakeOver;
@@ -574,7 +582,8 @@ void CCore::Run()
             if (++ecRefreshTick >= EC_REFRESH_TICKS)
             {
                 ecRefreshTick = 0;
-                if (bTakeOver && CanWriteFans(m_startupState.load(), m_userTakeoverAuthorized.load()) && m_bTakeOverStatus)
+                if (bTakeOver && CanWriteFans(m_startupState.load(), m_userTakeoverAuthorized.load()) &&
+                    m_controlVerification.load() == ControlVerification::Active)
                     SetFanDuty();
             }
             
@@ -602,7 +611,19 @@ void CCore::Work()
 {
     Update();
     CheckTempWarning();
+
+    if (m_takeoverVerification.IsFaulted())
+    {
+        ResetFan();
+        return;
+    }
+
     VerifyAndReclaim();
+    if (m_takeoverVerification.IsFaulted())
+    {
+        ResetFan();
+        return;
+    }
     
     CConfig cfgSnap;
      BOOL bForced;
@@ -690,11 +711,9 @@ void CCore::Update()
         TempErr = 0;
     }
 
-    const bool wrote = m_fanDutyWritten.load();
-    const bool readbackMatches = wrote &&
-        abs(m_nTargetDuty[0].load() - m_nReadbackDuty[0].load()) <= EC_TAKEOVER_THRESHOLD &&
-        abs(m_nTargetDuty[1].load() - m_nReadbackDuty[1].load()) <= EC_TAKEOVER_THRESHOLD;
-    m_readbackMatches = readbackMatches;
+    m_takeoverVerification.RecordReadback(
+        m_nReadbackDuty[0].load(), m_nReadbackDuty[1].load(), GetTickCount64());
+    m_controlVerification = m_takeoverVerification.State();
     
     if (m_bUpdateRPM.load())
         m_GpuInfo.Update();
@@ -834,8 +853,6 @@ void CCore::ResetFan()
         for (int i = 0; i < fanCount; i++)
             m_pfnSetFANDutyAuto(i + 1);
         m_bTakeOverStatus = FALSE;
-        m_fanDutyWritten = false;
-        m_readbackMatches = false;
         m_nLastSetDutyEC[0] = 0;
         m_nLastSetDutyEC[1] = 0;
         m_nTargetDuty[0] = 0;
@@ -848,11 +865,13 @@ void CCore::ResetFan()
 
 void CCore::VerifyAndReclaim()
 {
-    if (!m_bTakeOverStatus || m_pfnGetTempFanDuty == NULL || m_pfnSetFanDuty == NULL ||
+    if (!m_bTakeOverStatus || m_takeoverVerification.IsFaulted() ||
+        m_pfnGetTempFanDuty == NULL || m_pfnSetFanDuty == NULL ||
         !CanWriteFans(m_startupState.load(), m_userTakeoverAuthorized.load()))
         return;
 
     m_bEcTakeoverFlag = FALSE;
+    bool needsReclaim[MAX_EC_FANS] = {};
     for (int i = 0; i < 2; i++)
     {
         if (m_nLastSetDutyEC[i] <= 0) continue;
@@ -863,20 +882,39 @@ void CCore::VerifyAndReclaim()
         int deviation = abs(curDutyEC - m_nLastSetDutyEC[i]);
         if (deviation > EC_FAN_DUTY_MAX * EC_TAKEOVER_THRESHOLD / 100)
         {
-            m_bEcTakeoverFlag = TRUE;
-            m_nEcTakeoverCount++;
-            
-            m_pfnSetFanDuty(i + 1, m_nLastSetDutyEC[i]);
-            
-            TRACE("EC 接管检测 #%d: 风扇%d 写入=%d 实际=%d，已夺回\n",
-                   m_nEcTakeoverCount, i, m_nLastSetDutyEC[i], curDutyEC);
+            needsReclaim[i] = true;
         }
     }
+
+    if (!needsReclaim[0] && !needsReclaim[1])
+        return;
+
+    if (!m_takeoverVerification.CanReclaim(GetTickCount64()))
+    {
+        m_controlVerification = m_takeoverVerification.State();
+        ResetFan();
+        return;
+    }
+
+    m_bEcTakeoverFlag = TRUE;
+    ++m_nEcTakeoverCount;
+    for (int i = 0; i < 2; ++i)
+    {
+        if (!needsReclaim[i])
+            continue;
+
+        m_pfnSetFanDuty(i + 1, m_nLastSetDutyEC[i]);
+        TRACE("EC 接管检测 #%d: 风扇%d 写入=%d 实际=%d，已夺回\n",
+            m_nEcTakeoverCount, i, m_nLastSetDutyEC[i], m_nReadbackDuty[i].load());
+    }
+    m_takeoverVerification.RecordWrite(m_nTargetDuty[0].load(), m_nTargetDuty[1].load(), GetTickCount64());
+    m_controlVerification = m_takeoverVerification.State();
 }
 
 void CCore::SetFanDuty()
 {
-    if (m_pfnSetFanDuty == NULL || !CanWriteFans(m_startupState.load(), m_userTakeoverAuthorized.load()))
+    if (m_takeoverVerification.IsFaulted() || m_pfnSetFanDuty == NULL ||
+        !CanWriteFans(m_startupState.load(), m_userTakeoverAuthorized.load()))
         return;
 
     int fanCount = 2;
@@ -913,17 +951,18 @@ void CCore::SetFanDuty()
         }
     }
     m_bTakeOverStatus = TRUE;
-    m_fanDutyWritten = true;
     m_fansTouched = true;
+    m_takeoverVerification.RecordWrite(m_nTargetDuty[0].load(), m_nTargetDuty[1].load(), GetTickCount64());
+    m_controlVerification = m_takeoverVerification.State();
 }
 
 ControlVerification CCore::GetControlVerification() const
 {
-    return EvaluateControlVerification(
-        m_startupState.load(),
-        m_userTakeoverAuthorized.load(),
-        m_fanDutyWritten.load(),
-        m_readbackMatches.load());
+    if (m_startupState.load() != StartupState::CoreReady)
+        return ControlVerification::Fault;
+    if (!m_userTakeoverAuthorized.load())
+        return ControlVerification::BiosControl;
+    return m_controlVerification.load();
 }
 
 int CCore::GetTargetDuty(int fanIndex) const
@@ -938,14 +977,19 @@ int CCore::GetReadbackDuty(int fanIndex) const
 
 void CCore::SetUserTakeoverAuthorized(BOOL authorized)
 {
-    if (!authorized && m_userTakeoverAuthorized.exchange(false))
+    if (!authorized)
     {
-        m_fanDutyWritten = false;
-        m_readbackMatches = false;
-        ResetFan();
+        m_userTakeoverAuthorized = false;
+        m_controlVerification = ControlVerification::BiosControl;
+        m_takeoverSessionResetRequested = true;
+        m_resetFansRequested = true;
     }
-    else if (authorized)
+    else
+    {
         m_userTakeoverAuthorized = true;
+        m_controlVerification = ControlVerification::RequestingTakeover;
+        m_takeoverSessionResetRequested = true;
+    }
 }
 
 void CCore::EnableForcedCooling(BOOL enable)
