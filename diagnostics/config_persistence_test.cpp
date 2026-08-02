@@ -37,6 +37,19 @@ void WriteStaleTemporaryFile(const std::wstring& path)
     file.write(reinterpret_cast<const char*>(&stale), sizeof(stale));
 }
 
+void WriteLegacyV3File(const std::wstring& path, const ConfigV4Disk& config)
+{
+    struct Header
+    {
+        std::uint32_t magic;
+        std::uint32_t version;
+    } header{ CONFIG_FILE_MAGIC, CONFIG_FILE_VERSION_V3 };
+
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+    file.write(reinterpret_cast<const char*>(&config), sizeof(config));
+}
+
 void AssertV4Header(const std::wstring& path)
 {
     struct Header
@@ -79,6 +92,15 @@ int main()
     WriteStaleTemporaryFile(configPath);
     assert(ReadConfigWithBackup(configPath.c_str(), &loaded, sizeof(loaded)));
     assert(loaded.UpdateInterval == 2);
+
+    // Existing v3 files use the same field sequence and must be normalized during migration.
+    ConfigV4Disk legacy{};
+    legacy.UpdateInterval = 9;
+    legacy.ManualDuty[0] = 125;
+    WriteLegacyV3File(configPath, legacy);
+    assert(ReadConfigWithBackup(configPath.c_str(), &loaded, sizeof(loaded)));
+    assert(loaded.UpdateInterval == 5);
+    assert(loaded.ManualDuty[0] == 100);
 
     RemoveTestFiles(configPath);
     return 0;
