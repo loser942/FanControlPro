@@ -157,15 +157,7 @@ BOOL CFanControlProDlg::OnInitDialog()
      this->GetWindowRect(rect);
      m_nWindowSize[0] = rect.Width();
      m_nWindowSize[1] = rect.Height();
-     if (CWnd* advancedGroup = GetDlgItem(IDC_STATIC_ADVANCED_GROUP))
-     {
-         CRect advancedRect;
-         advancedGroup->GetWindowRect(&advancedRect);
-         ScreenToClient(&advancedRect);
-         CRect client;
-         GetClientRect(&client);
-         m_nCompactWindowHeight = advancedRect.top + (rect.Height() - client.Height());
-     }
+     m_nCompactWindowHeight = rect.Height();
      m_ctlMode.AddString(L"自动模式");
      m_ctlMode.AddString(L"手动模式");
      m_ctlMode.AddString(L"强冷模式");
@@ -729,6 +721,7 @@ void CFanControlProDlg::OnBnClickedCheckLinear()
 void CFanControlProDlg::SetAdvancedMode(BOOL bAdvanced)
 {
     const int showAdvanced = DialogLayoutPolicy::ShowAdvancedCommands(bAdvanced) ? SW_SHOW : SW_HIDE;
+    const int showMonitoring = DialogLayoutPolicy::ShowMonitoringControls(bAdvanced) ? SW_SHOW : SW_HIDE;
     const int advancedControls[] = {
         IDC_STATIC_ADVANCED_GROUP, IDC_EDIT_INTERVAL, IDC_EDIT_TRANSITION,
         IDC_EDIT_FORCE_TEMP, IDC_CHECK_LINEAR, IDC_CHECK_LOCK_GPU,
@@ -748,6 +741,22 @@ void CFanControlProDlg::SetAdvancedMode(BOOL bAdvanced)
         if (control) control->ShowWindow(showAdvanced);
     }
 
+    const int monitoringControls[] = {
+        IDC_STATIC_MONITOR_GROUP, IDC_STATIC_FAN_GROUP,
+        IDC_STATIC_CPU_TEMP, IDC_PROGRESS_CPU_TEMP, IDC_STATIC_GPU_TEMP,
+        IDC_PROGRESS_GPU_TEMP, IDC_STATIC_CPU_RPM, IDC_STATIC_GPU_RPM,
+        IDC_STATIC_GPU_USAGE, IDC_STATIC_CPU_USAGE, IDC_STATIC_STARTUP_STATUS,
+        IDC_STATIC_CONTROL_STATUS, IDC_STATIC_WARNING_STATUS, IDC_COMBO_MODE,
+        IDC_CHECK_TAKEOVER, IDC_CHECK_FORCE, IDC_STATIC_CPU_FAN_LABEL,
+        IDC_SLIDER_CPU_FAN, IDC_EDIT_CPU_FAN, IDC_STATIC_GPU_FAN_LABEL,
+        IDC_SLIDER_GPU_FAN, IDC_EDIT_GPU_FAN, IDC_CHECK_AUTORUN
+    };
+    for (int id : monitoringControls)
+    {
+        CWnd* control = GetDlgItem(id);
+        if (control) control->ShowWindow(showMonitoring);
+    }
+
     const int targetHeight = DialogLayoutPolicy::SelectWindowHeight(
         bAdvanced, m_nCompactWindowHeight, m_nWindowSize[1]);
     if (m_nWindowSize[0] > 0 && targetHeight > 0)
@@ -758,7 +767,7 @@ void CFanControlProDlg::SetAdvancedMode(BOOL bAdvanced)
     }
     m_bAdvancedMode = bAdvanced;
     if (CWnd* advancedButton = GetDlgItem(IDC_BUTTON_ADVANCED))
-        advancedButton->SetWindowTextW(bAdvanced ? L"收起高级设置" : L"高级设置");
+        advancedButton->SetWindowTextW(bAdvanced ? L"返回监控" : L"高级设置");
 }
 
 void CFanControlProDlg::OnBnClickedButtonAdvanced()

@@ -7,7 +7,9 @@ int main()
     assert(DialogLayoutPolicy::SelectWindowHeight(true, 480, 760) == 760);
     assert(!DialogLayoutPolicy::ShowAdvancedCommands(false));
     assert(DialogLayoutPolicy::ShowAdvancedCommands(true));
-    assert(!DialogLayoutPolicy::ControlsFit(300, 345, 16));
-    assert(DialogLayoutPolicy::ControlsFit(370, 345, 16));
+    assert(DialogLayoutPolicy::ShowMonitoringControls(false));
+    assert(!DialogLayoutPolicy::ShowMonitoringControls(true));
+    assert(!DialogLayoutPolicy::ControlsFit(190, 345, 16));
+    assert(DialogLayoutPolicy::ControlsFit(190, 160, 16));
     return 0;
 }
