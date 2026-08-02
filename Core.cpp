@@ -41,19 +41,19 @@ int GetTimeInterval(int a, int b, int *p)
 }
 
 // 获取 exe 路径
-CString GetExePath()
- {
-     char pathbuf[MAX_PATH] = { 0 };
-     DWORD pathlen = ::GetModuleFileNameA(NULL, pathbuf, MAX_PATH);
-     if (pathlen == 0 || pathlen >= MAX_PATH)
-         return "";
+CStringW GetExePath()
+{
+    wchar_t pathbuf[MAX_PATH] = {};
+    const DWORD pathlen = ::GetModuleFileNameW(nullptr, pathbuf, _countof(pathbuf));
+    if (pathlen == 0 || pathlen >= _countof(pathbuf))
+        return L"";
 
-     char* lastSlash = strrchr(pathbuf, '\\');
-     if (lastSlash == NULL)
-         return "";
-     *(lastSlash + 1) = '\0';
-     return CString(pathbuf);
- }
+    wchar_t* lastSlash = wcsrchr(pathbuf, L'\\');
+    if (lastSlash == nullptr)
+        return L"";
+    *(lastSlash + 1) = L'\0';
+    return CStringW(pathbuf);
+}
 
 // ==================== CGPUInfo 实现 ====================
 
@@ -98,9 +98,8 @@ CString GetExePath()
      m_pfnSet_MEMOC                = NULL;
      m_pfnCloseGPU_API             = NULL;
      
-      CString dllpth = GetExePath() + "\\NVGPU_DLL.dll";
-    CStringA dllPathA(CT2A(dllpth, CP_ACP));
-    if (!m_hGPUdll.Load(dllPathA))
+    const CStringW dllpth = GetExePath() + L"NVGPU_DLL.dll";
+    if (!m_hGPUdll.Load(dllpth))
     {
         TRACE0("无法加载 NVGPU_DLL.dll\n");
         return;
@@ -229,7 +228,7 @@ BOOL CGPUInfo::LockFrequency(int frequency)
 
 CConfig::CConfig()
 {
-    const CStringW path = CStringW(GetExePath()) + L"FanControlPro.cfg";
+    const CStringW path = GetExePath() + L"FanControlPro.cfg";
     StringCchCopyW(ConfigPath, _countof(ConfigPath), path);
     LoadDefault();
 }
@@ -277,9 +276,8 @@ void CConfig::LoadDefault()
 
 void WriteDiagnosticLog(PCSTR message)
 {
-    CString path = GetExePath() + "FanControlPro.debug.log";
-    CStringA logPathA(CT2A(path, CP_ACP));
-    FILE* file = fopen(logPathA, "at");
+    const CStringW path = GetExePath() + L"FanControlPro.debug.log";
+    FILE* file = _wfopen(path, L"at");
     if (!file)
         return;
 
@@ -472,9 +470,8 @@ BOOL CCore::Init()
     TRACE0("内核开始初始化\n");
     m_nInit = -1;
     
-    CString dllpth = GetExePath() + "\\ClevoEcInfo.dll";
-    CStringA dllPathA(CT2A(dllpth, CP_ACP));
-    if (!m_hInstDLL.Load(dllPathA))
+    const CStringW dllpth = GetExePath() + L"ClevoEcInfo.dll";
+    if (!m_hInstDLL.Load(dllpth))
     {
         char logLine[128] = {};
         sprintf_s(logLine, "ClevoEcInfo.dll load failed. LastError=%lu", GetLastError());

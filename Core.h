@@ -39,7 +39,7 @@ int GetTime(tm *pt = 0, int offset = 0);
 // 计算时间差
 int GetTimeInterval(int a, int b, int *p = 0);
 // 获取 exe 当前路径
-CString GetExePath();
+CStringW GetExePath();
 void WriteDiagnosticLog(PCSTR message);
 
 // EC 数据结构
@@ -83,7 +83,7 @@ public:
         return *this;
     }
 
-    bool Load(PCSTR path) { Close(); m_h = LoadLibraryA(path); return m_h != nullptr; }
+    bool Load(PCWSTR path) { Close(); m_h = LoadLibraryW(path); return m_h != nullptr; }
     void Close() { if (m_h) { FreeLibrary(m_h); m_h = nullptr; } }
     HMODULE Get() const { return m_h; }
     explicit operator bool() const { return m_h != nullptr; }
