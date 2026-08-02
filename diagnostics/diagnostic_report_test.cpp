@@ -35,14 +35,17 @@ int main()
             (line < 100 ? L"0" + std::to_wstring(line) : std::to_wstring(line));
         input.logLines.push_back(L"日志[" + marker + L"] C:\\Users\\alice\\FanControlPro.debug.log");
     }
+    input.logLines.push_back(L"额外日志 C:\\Users\\Alice Example\\secret.txt");
 
     const std::string report = BuildDiagnosticReportUtf8(input);
     assert(report.find("FanControl Pro v8") != std::string::npos);
     assert(report.find("Windows 11 23H2") != std::string::npos);
     assert(report.find("\xE5\x90\xAF\xE5\x8A\xA8\xE8\x87\xAA\xE6\xA3\x80") != std::string::npos);
     assert(report.find("日志[004]") == std::string::npos);
-    assert(report.find("日志[005]") != std::string::npos);
+    assert(report.find("日志[006]") != std::string::npos);
     assert(report.find("C:\\Users\\alice") == std::string::npos);
+    assert(report.find("Alice Example") == std::string::npos);
+    assert(report.find("secret.txt") == std::string::npos);
     assert(report.find("<已隐藏路径>") != std::string::npos);
     return 0;
 }

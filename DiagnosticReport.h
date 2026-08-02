@@ -39,7 +39,8 @@ inline std::wstring SanitizeDiagnosticLine(const std::wstring& line)
         }
 
         size_t pathEnd = index + 3;
-        while (pathEnd < line.size() && !iswspace(line[pathEnd]) && line[pathEnd] != L'"' && line[pathEnd] != L'\'')
+        while (pathEnd < line.size() && line[pathEnd] != L'"' && line[pathEnd] != L'\'' &&
+            line[pathEnd] != L',' && line[pathEnd] != L';')
             ++pathEnd;
         sanitized += L"<已隐藏路径>";
         index = pathEnd;
