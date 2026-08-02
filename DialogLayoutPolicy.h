@@ -12,4 +12,9 @@ public:
     {
         return advanced;
     }
+
+    static bool ControlsFit(int dialogHeight, int controlTop, int controlHeight)
+    {
+        return controlTop >= 0 && controlHeight >= 0 && controlTop + controlHeight <= dialogHeight;
+    }
 };
