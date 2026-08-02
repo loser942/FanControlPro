@@ -555,7 +555,7 @@ BOOL CFanControlProDlg::CheckAndSave()
     m_core.m_config.ForceTemp = nForceTemp;
     m_core.m_config.GPUFrequency = nFrequency;
     m_core.UnlockConfig();
-    m_core.m_config.SaveConfig();
+    m_core.SaveConfigSnapshot();
     m_core.SetWarningSettings(m_ctlDesktopNotifications.GetCheck(), warningTemp, cooldownMinutes);
     return TRUE;
 }
@@ -607,7 +607,7 @@ void CFanControlProDlg::OnBnClickedButtonReset()
     m_core.LockConfig();
     m_core.m_config.LoadDefault();
     m_core.UnlockConfig();
-    m_core.m_config.SaveConfig();
+    m_core.SaveConfigSnapshot();
     UpdateGui(TRUE);
 }
 

@@ -229,10 +229,8 @@ BOOL CGPUInfo::LockFrequency(int frequency)
 
 CConfig::CConfig()
 {
-    CString path = GetExePath() + "\\FanControlPro.cfg";
-    CStringW configPathW(path);
-    CStringA configPathA(CW2A(configPathW, CP_ACP));
-    strcpy_s(ConfigPath, MAX_PATH, configPathA);
+    const CStringW path = CStringW(GetExePath()) + L"FanControlPro.cfg";
+    StringCchCopyW(ConfigPath, _countof(ConfigPath), path);
     LoadDefault();
 }
 
@@ -314,104 +312,84 @@ void CConfig::Normalize()
     }
 }
 
-#define CONFIG_MAGIC 0x46504346
- #define CONFIG_VERSION 3          // v3: 增加温度告警设置
+namespace
+{
+ConfigV4Disk ToDiskConfig(const CConfig& config)
+{
+    ConfigV4Disk disk{};
+    std::memcpy(disk.DutyList, config.DutyList, sizeof(disk.DutyList));
+    disk.TransitionTemp = config.TransitionTemp;
+    disk.UpdateInterval = config.UpdateInterval;
+    disk.Linear = config.Linear;
+    disk.TakeOver = config.TakeOver;
+    disk.ForceTemp = config.ForceTemp;
+    disk.MaxDutyLimit = config.MaxDutyLimit;
+    disk.LockGPUFrequency = config.LockGPUFrequency;
+    disk.GPUFrequency = config.GPUFrequency;
+    disk.ControlMode = config.ControlMode;
+    std::memcpy(disk.ManualDuty, config.ManualDuty, sizeof(disk.ManualDuty));
+    disk.WarningTemp = config.WarningTemp;
+    disk.DesktopNotifications = config.DesktopNotifications;
+    disk.NotificationCooldownMinutes = config.NotificationCooldownMinutes;
+    return disk;
+}
 
- void CConfig::LoadConfig()
- {
-     FILE *fp = fopen(ConfigPath, "rb");
-     if (fp == NULL)
-     {
-         SaveConfig();
-         return;
-     }
-     int header[2] = {0};
-     if (fread(header, sizeof(header), 1, fp) != 1 ||
-         header[0] != CONFIG_MAGIC || header[1] != CONFIG_VERSION)
-     {
-         fclose(fp);
-         LoadDefault();
-         SaveConfig();
-         return;
-     }
-     // 序列化 ConfigPath 之前的所有配置字段
-     const size_t configDataSize = offsetof(CConfig, ConfigPath);
-     int ok = fread(reinterpret_cast<char*>(this), configDataSize, 1, fp);
-     fclose(fp);
- if (ok != 1)
-     {
-         LoadDefault();
-          SaveConfig();
-      }
-     else
-     {
-         Normalize();
-     }
- }
+void ApplyDiskConfig(CConfig& config, const ConfigV4Disk& disk)
+{
+    std::memcpy(config.DutyList, disk.DutyList, sizeof(config.DutyList));
+    config.TransitionTemp = disk.TransitionTemp;
+    config.UpdateInterval = disk.UpdateInterval;
+    config.Linear = disk.Linear;
+    config.TakeOver = disk.TakeOver;
+    config.ForceTemp = disk.ForceTemp;
+    config.MaxDutyLimit = disk.MaxDutyLimit;
+    config.LockGPUFrequency = disk.LockGPUFrequency;
+    config.GPUFrequency = disk.GPUFrequency;
+    config.ControlMode = disk.ControlMode;
+    std::memcpy(config.ManualDuty, disk.ManualDuty, sizeof(config.ManualDuty));
+    config.WarningTemp = disk.WarningTemp;
+    config.DesktopNotifications = disk.DesktopNotifications;
+    config.NotificationCooldownMinutes = disk.NotificationCooldownMinutes;
+    config.Normalize();
+}
+}
 
- void CConfig::SaveConfig()
- {
-     FILE *fp = fopen(ConfigPath, "wb");
-    if (fp == NULL)
+void CConfig::LoadConfig()
+{
+    ConfigV4Disk disk{};
+    if (!ReadConfigWithBackup(ConfigPath, &disk, sizeof(disk)))
     {
-        WriteDiagnosticLog("Config write open failed");
+        LoadDefault();
+        SaveConfig();
         return;
-     }
-     int header[2] = { CONFIG_MAGIC, CONFIG_VERSION };
-     int ok1 = fwrite(header, sizeof(header), 1, fp);
-     const size_t configDataSize = offsetof(CConfig, ConfigPath);
-     int ok2 = fwrite(reinterpret_cast<char*>(this), configDataSize, 1, fp);
-     fclose(fp);
-    if (ok1 != 1 || ok2 != 1)
-    {
-        WriteDiagnosticLog("Config write failed");
     }
- }
- 
+    ApplyDiskConfig(*this, disk);
+}
 
- void CConfig::ExportConfig(PCSTR path) const
- {
-     FILE *fp = fopen(path, "wb");
-     if (fp == NULL)
-     {
-         AfxMessageBox(L"无法打开导出路径");
-         return;
-     }
-     int header[2] = { CONFIG_MAGIC, CONFIG_VERSION };
-     fwrite(header, sizeof(header), 1, fp);
-     const size_t dataSize = offsetof(CConfig, ConfigPath);
-     fwrite(reinterpret_cast<const char*>(this), dataSize, 1, fp);
-     fclose(fp);
- }
+void CConfig::SaveConfig()
+{
+    const ConfigV4Disk disk = ToDiskConfig(*this);
+    if (!WriteConfigAtomically(ConfigPath, &disk, sizeof(disk)))
+        WriteDiagnosticLog("Config write failed");
+}
 
- void CConfig::ImportConfig(PCSTR path)
- {
-     FILE *fp = fopen(path, "rb");
-     if (fp == NULL)
-     {
-         AfxMessageBox(L"无法打开导入文件，请检查路径");
-         return;
-     }
-     int header[2] = {0};
-     if (fread(header, sizeof(header), 1, fp) != 1 ||
-         header[0] != CONFIG_MAGIC || header[1] != CONFIG_VERSION)
-     {
-         fclose(fp);
-         AfxMessageBox(L"配置文件格式不匹配或版本不兼容，导入失败");
-         return;
-     }
-     const size_t dataSize = offsetof(CConfig, ConfigPath);
-     if (fread(reinterpret_cast<char*>(this), dataSize, 1, fp) != 1)
-     {
-         AfxMessageBox(L"配置文件格式不匹配，导入失败");
-          LoadDefault();
-      }
-      else
-      {
-          Normalize();
-      }
-     fclose(fp);
- }
+void CConfig::ExportConfig(PCWSTR path) const
+{
+    const ConfigV4Disk disk = ToDiskConfig(*this);
+    if (!WriteConfigAtomically(path, &disk, sizeof(disk)))
+        AfxMessageBox(L"无法打开导出路径");
+}
+
+void CConfig::ImportConfig(PCWSTR path)
+{
+    ConfigV4Disk disk{};
+    if (!ReadConfigWithBackup(path, &disk, sizeof(disk)))
+    {
+        AfxMessageBox(L"配置文件格式不匹配或版本不兼容，导入失败");
+        return;
+    }
+    ApplyDiskConfig(*this, disk);
+}
 
 // ==================== CCore 实现 ====================
 
@@ -473,6 +451,17 @@ m_nEcTakeoverCount = 0;
      if (m_hExitEvent) { CloseHandle(m_hExitEvent); m_hExitEvent = NULL; }
      DeleteCriticalSection(&m_csConfig);
  }
+
+void CCore::SaveConfigSnapshot()
+{
+    CConfig snapshot;
+    LockConfig();
+    snapshot = m_config;
+    UnlockConfig();
+
+    std::lock_guard<std::mutex> lock(m_configPersistenceMutex);
+    snapshot.SaveConfig();
+}
 
 BOOL CCore::Init()
 {
@@ -1029,7 +1018,7 @@ void CCore::SetMaxDutyLimit(int limit)
     EnterCriticalSection(&m_csConfig);
     m_config.MaxDutyLimit = max(0, min(100, limit));
     LeaveCriticalSection(&m_csConfig);
-    m_config.SaveConfig();
+    SaveConfigSnapshot();
 }
 
 void CCore::SetControlMode(int mode)
@@ -1093,7 +1082,7 @@ void CCore::SetWarningSettings(BOOL enabled, int warningTemp, int cooldownMinute
     m_config.WarningTemp = max(60, min(100, warningTemp));
     m_config.NotificationCooldownMinutes = max(1, min(60, cooldownMinutes));
     UnlockConfig();
-    m_config.SaveConfig();
+    SaveConfigSnapshot();
 }
 
 void CCore::ApplyPreset(const char* presetName)
@@ -1129,6 +1118,6 @@ void CCore::ApplyPreset(const char* presetName)
     
     LeaveCriticalSection(&m_csConfig);
     
-    m_config.SaveConfig();
+    SaveConfigSnapshot();
     m_bForcedRefresh = TRUE;
 }

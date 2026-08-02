@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <synchapi.h>
+#include "ConfigPersistence.h"
 #include "StartupState.h"
 #include "ControlVerificationState.h"
 #include "TakeoverVerificationPolicy.h"
@@ -171,15 +173,15 @@ public:
     BOOL DesktopNotifications;
     int NotificationCooldownMinutes;
     
-    char ConfigPath[MAX_PATH];
+    wchar_t ConfigPath[MAX_PATH];
     
 public:
     void LoadDefault();
     void LoadConfig();
     void SaveConfig();
     void Normalize();
-    void ExportConfig(PCSTR path) const;
-    void ImportConfig(PCSTR path);
+    void ExportConfig(PCWSTR path) const;
+    void ImportConfig(PCWSTR path);
 };
 
 // 核心控制类
@@ -253,7 +255,8 @@ int m_nLastSetDutyEC[2];
      ControlVerification GetControlVerification() const;
      int GetTargetDuty(int fanIndex) const;
      int GetReadbackDuty(int fanIndex) const;
-     void SetUserTakeoverAuthorized(BOOL authorized);
+    void SetUserTakeoverAuthorized(BOOL authorized);
+    void SaveConfigSnapshot();
 
 public:
     BOOL Init();
@@ -282,4 +285,5 @@ public:
 
 protected:
     CRITICAL_SECTION m_csConfig;
+    std::mutex m_configPersistenceMutex;
 };
