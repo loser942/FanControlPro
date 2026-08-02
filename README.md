@@ -1,11 +1,11 @@
-# FanControl Pro
+# FanControl Pro 请使用startup-stability 分支
 
 > 🔧 本项目基于 [xl-Synapse/MyFanControl](https://github.com/xl-Synapse/MyFanControl) 修改而来
 
 **蓝天 (Clevo) 模具笔记本智能风扇控制工具**
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)]()
-[![Language](https://img.shields.io/badge/language-C%2B%2B%20MFC-orange)]()
+[![语言](https://img.shields.io/badge/language-C%2B%2B%20MFC-orange)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
 ---
@@ -35,7 +35,7 @@
 
 1. **Visual Studio 2022**（含 C++ MFC 支持）打开 `FanControlPro.sln`
 2. 编译生成 `FanControlPro.exe`
-3. 从 [Releases](../../releases) 下载 `MyFanControl-v1.0.zip`（运行时依赖）
+3. 从 [发布](../../releases) 下载 `MyFanControl-v1.0.zip`（运行时依赖）
 4. 解压后放入编译输出目录（与 `FanControlPro.exe` 同级）
 5. 运行 `NTPortDrvSetup.exe` 安装驱动
 
