@@ -534,7 +534,6 @@ BOOL CCore::Init()
 
 void CCore::Uninit()
 {
-    ResetFan();
     m_hInstDLL.Close();
     m_nInit = 0;
 }
@@ -609,7 +608,16 @@ void CCore::Run()
 
 void CCore::Work()
 {
-    Update();
+    const BOOL sensorsValid = Update();
+    if (m_sensorHealth.IsFaulted())
+    {
+        m_controlVerification = ControlVerification::Fault;
+        ResetFan();
+        return;
+    }
+    if (!sensorsValid)
+        return;
+
     CheckTempWarning();
 
     if (m_takeoverVerification.IsFaulted())
@@ -662,61 +670,69 @@ void CCore::Work()
         m_GpuInfo.LockFrequency(0);
 }
 
-void CCore::Update()
- {
-    if (!m_pfnGetTempFanDuty) return;
-     ECData data;
-     int TempErr = 0;
-    
-    for (int i = 0; i < 2; i++)
+BOOL CCore::Update()
+{
+    if (!m_pfnGetTempFanDuty)
+        return FALSE;
+
+    ECData samples[MAX_EC_FANS] = {};
+    bool validTemperature[MAX_EC_FANS] = {};
+    for (int i = 0; i < MAX_EC_FANS; ++i)
     {
-        data = m_pfnGetTempFanDuty(i + 1);
-        this->m_nReadbackDuty[i] = int(data.FanDuty * 100 / double(EC_FAN_DUTY_MAX) + 0.5);
-        const int sampledTemp = static_cast<int>(data.Remote);
         const int previousTemp = m_nCurTemp[i].load();
-// 温度异常检测（最多重试 2 次，3 次异常则保留旧温度）
-         if (sampledTemp == 0 || sampledTemp > MAX_VALID_TEMPERATURE ||
-             (previousTemp != 0 && abs(sampledTemp - previousTemp) > 30))
-         {
-             if (TempErr++ < 2)
-             {
-                 Sleep(1000);
-                 i--;
-                 continue;
-             }
-             // 连续 3 次异常，放弃更新，保留旧温度
-              TRACE("温度传感器异常：风扇%d 旧值=%d 读取=%d，已跳过\n", i, previousTemp, sampledTemp);
-             TempErr = 0;
-             continue;
-         }
-        
-         this->m_nLastTemp[i] = previousTemp;
-         this->m_nCurTemp[i] = sampledTemp;
-        this->m_nCurDuty[i] = int(data.FanDuty * 100 / double(EC_FAN_DUTY_MAX) + 0.5);
+        for (int attempt = 0; attempt < 3; ++attempt)
+        {
+            samples[i] = m_pfnGetTempFanDuty(i + 1);
+            const int sampledTemp = static_cast<int>(samples[i].Remote);
+            validTemperature[i] = sampledTemp != 0 && sampledTemp <= MAX_VALID_TEMPERATURE &&
+                (previousTemp == 0 || abs(sampledTemp - previousTemp) <= 30);
+            if (validTemperature[i])
+                break;
+
+            if (attempt < 2 && WaitForSingleObject(m_hExitEvent, 1000) == WAIT_OBJECT_0)
+                return FALSE;
+        }
+    }
+
+    if (!m_sensorHealth.RecordCycle(validTemperature[0], validTemperature[1]))
+        return FALSE;
+    if (!validTemperature[0] || !validTemperature[1])
+    {
+        TRACE("温度传感器异常：本轮采样已跳过，暂不更新风扇控制\n");
+        return FALSE;
+    }
+
+    for (int i = 0; i < MAX_EC_FANS; ++i)
+    {
+        const int previousTemp = m_nCurTemp[i].load();
+        m_nLastTemp[i] = previousTemp;
+        m_nCurTemp[i] = static_cast<int>(samples[i].Remote);
+        m_nCurDuty[i] = int(samples[i].FanDuty * 100 / double(EC_FAN_DUTY_MAX) + 0.5);
+        m_nReadbackDuty[i] = m_nCurDuty[i].load();
 
         if (m_bUpdateRPM.load() && m_pfnGetFANRPM[i] != NULL)
         {
-            int val = m_pfnGetFANRPM[i]();
-            if (val == 0)
-                this->m_nCurRPM[i] = 0;
-            else if (val > RPM_MIN_PULSE && val < RPM_MAX_PULSE)
-                this->m_nCurRPM[i] = RPM_PULSE_FACTOR / val;
+            const int value = m_pfnGetFANRPM[i]();
+            if (value == 0)
+                m_nCurRPM[i] = 0;
+            else if (value > RPM_MIN_PULSE && value < RPM_MAX_PULSE)
+                m_nCurRPM[i] = RPM_PULSE_FACTOR / value;
             else
-                this->m_nCurRPM[i] = -1;
+                m_nCurRPM[i] = -1;
         }
         else
         {
-            this->m_nCurRPM[i] = -1;
+            m_nCurRPM[i] = -1;
         }
-        TempErr = 0;
     }
 
     m_takeoverVerification.RecordReadback(
         m_nReadbackDuty[0].load(), m_nReadbackDuty[1].load(), GetTickCount64());
     m_controlVerification = m_takeoverVerification.State();
-    
+
     if (m_bUpdateRPM.load())
         m_GpuInfo.Update();
+    return TRUE;
 }
 
 void CCore::Control(const CConfig& cfg)
@@ -913,7 +929,7 @@ void CCore::VerifyAndReclaim()
 
 void CCore::SetFanDuty()
 {
-    if (m_takeoverVerification.IsFaulted() || m_pfnSetFanDuty == NULL ||
+    if (m_sensorHealth.IsFaulted() || m_takeoverVerification.IsFaulted() || m_pfnSetFanDuty == NULL ||
         !CanWriteFans(m_startupState.load(), m_userTakeoverAuthorized.load()))
         return;
 

@@ -7,6 +7,7 @@
 #include "StartupState.h"
 #include "ControlVerificationState.h"
 #include "TakeoverVerificationPolicy.h"
+#include "SensorHealthPolicy.h"
 #include "TemperatureAlertPolicy.h"
 
 constexpr UINT WM_CORE_INIT_RESULT = WM_APP + 2;
@@ -233,6 +234,7 @@ public:
     BOOL m_bTempWarning;
     BOOL m_bThermalEmergency;
     TakeoverVerificationPolicy m_takeoverVerification{ EC_TAKEOVER_THRESHOLD, 3000, 2, 5000, 3 };
+    SensorHealthPolicy m_sensorHealth;
     TemperatureAlertPolicy m_temperatureAlertPolicy;
     HWND m_hWnd;
 
@@ -258,7 +260,7 @@ public:
     void Uninit();
     void Run();
     void Work();
-    void Update();
+    BOOL Update();
     void Control(const CConfig& cfg);
     void CalcLinearDuty(const CConfig& cfg);
     void CalcStdDuty(const CConfig& cfg);
