@@ -101,6 +101,7 @@
     <ClInclude Include="DialogLayoutPolicy.h" />
     <ClInclude Include="ControlVerificationState.h" />
     <ClInclude Include="Core.h" />
+    <ClInclude Include="SensorHealthPolicy.h" />
     <ClInclude Include="StartupState.h" />
     <ClInclude Include="TemperatureAlertPolicy.h" />
     <ClInclude Include="FanControlPro.h" />
