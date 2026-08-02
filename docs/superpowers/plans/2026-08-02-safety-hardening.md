@@ -29,7 +29,7 @@
 
 ---
 
-### 任务 1：接管确认会话与抢回预算
+### Task 1: 接管确认会话与抢回预算
 
 **文件：**
 
@@ -104,7 +104,7 @@ git add TakeoverVerificationPolicy.h ControlVerificationState.h Core.h Core.cpp 
 git commit -m "fix: require sustained fan takeover verification"
 ```
 
-### 任务 2：传感器故障与线程内 BIOS 回退
+### Task 2: 传感器故障与线程内 BIOS 回退
 
 **文件：**
 
@@ -179,7 +179,7 @@ git add SensorHealthPolicy.h diagnostics/sensor_health_policy_test.cpp Core.h Co
 git commit -m "fix: stop fan control on sensor faults"
 ```
 
-### 任务 3：v4 配置与原子快照保存
+### Task 3: v4 配置与原子快照保存
 
 **文件：**
 
@@ -248,7 +248,7 @@ git add ConfigPersistence.h diagnostics/config_persistence_test.cpp Core.h Core.
 git commit -m "fix: persist fan settings atomically"
 ```
 
-### 任务 4：宽字符路径、强冷授权和自启操作
+### Task 4: 宽字符路径、强冷授权和自启操作
 
 **文件：**
 
@@ -330,7 +330,7 @@ git add AutorunCommandPolicy.h StartupState.h diagnostics/startup_state_test.cpp
 git commit -m "fix: harden autorun and Unicode paths"
 ```
 
-### 任务 5：全量验证、中文说明与发布前检查
+### Task 5: 全量验证、中文说明与发布前检查
 
 **文件：**
 
