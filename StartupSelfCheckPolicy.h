@@ -12,6 +12,12 @@ struct StartupCheckResult final
     const bool takeoverAllowed;
     const std::wstring statusMessage;
 
+    StartupCheckResult()
+        : blockingFaults(), warnings(), consecutiveValidTemperatureSamples(0),
+          takeoverAllowed(false), statusMessage(L"正在进行启动自检，仅监控模式")
+    {
+    }
+
     StartupCheckResult(std::vector<std::wstring> faults, std::vector<std::wstring> reportedWarnings,
         unsigned int validSampleCount, bool allowTakeover, std::wstring message)
         : blockingFaults(std::move(faults)),

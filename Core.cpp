@@ -439,6 +439,7 @@ m_nEcTakeoverCount = 0;
      m_nSavedControlMode = 0;
 
      m_hExitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+     m_startupCheckResult = std::make_shared<StartupCheckResult>();
 
      InitializeCriticalSection(&m_csConfig);
  }
@@ -477,10 +478,14 @@ BOOL CCore::Init()
         sprintf_s(logLine, "ClevoEcInfo.dll load failed. LastError=%lu", GetLastError());
         WriteDiagnosticLog(logLine);
         m_initError = GetLastError();
+        m_ecDllAvailable = FALSE;
+        m_driverInitialized = FALSE;
         m_startupState = StartupState::CoreFailed;
+        RecordStartupCheck(0, 0);
         if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 0, 0);
         return FALSE;
     }
+    m_ecDllAvailable = TRUE;
     WriteDiagnosticLog("ClevoEcInfo.dll loaded");
 
     HMODULE hDll = m_hInstDLL.Get();
@@ -503,7 +508,9 @@ BOOL CCore::Init()
     {
         m_hInstDLL.Close();
         m_initError = GetLastError();
+        m_driverInitialized = FALSE;
         m_startupState = StartupState::CoreFailed;
+        RecordStartupCheck(0, 0);
         if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 0, 0);
         return FALSE;
     }
@@ -511,10 +518,11 @@ BOOL CCore::Init()
     TRACE0("内核初始化成功\n");
     
     m_nInit = 1;
-    m_startupState = StartupState::CoreReady;
+    m_startupState = StartupState::SelfChecking;
+    m_driverInitialized = TRUE;
     m_initError = ERROR_SUCCESS;
     WriteDiagnosticLog("Core.Init completed read-only probe");
-    if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 1, 0);
+    if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 2, 0);
     return TRUE;
 }
 
@@ -684,6 +692,7 @@ BOOL CCore::Update()
         return FALSE;
     if (!validTemperature[0] || !validTemperature[1])
     {
+        RecordStartupCheck(static_cast<int>(samples[0].Remote), static_cast<int>(samples[1].Remote));
         TRACE("温度传感器异常：本轮采样已跳过，暂不更新风扇控制\n");
         return FALSE;
     }
@@ -718,6 +727,7 @@ BOOL CCore::Update()
 
     if (m_bUpdateRPM.load())
         m_GpuInfo.Update();
+    RecordStartupCheck(m_nCurTemp[0].load(), m_nCurTemp[1].load());
     return TRUE;
 }
 
@@ -965,6 +975,41 @@ ControlVerification CCore::GetControlVerification() const
     if (!m_userTakeoverAuthorized.load())
         return ControlVerification::BiosControl;
     return m_controlVerification.load();
+}
+
+StartupCheckResult CCore::GetStartupCheckResult() const
+{
+    std::lock_guard<std::mutex> lock(m_startupCheckMutex);
+    return *m_startupCheckResult;
+}
+
+BOOL CCore::IsTakeoverAllowedByStartupCheck() const
+{
+    std::lock_guard<std::mutex> lock(m_startupCheckMutex);
+    return m_startupCheckResult->takeoverAllowed ? TRUE : FALSE;
+}
+
+void CCore::RecordStartupCheck(int cpuTemperature, int gpuTemperature)
+{
+    const BOOL gpuAvailable = m_GpuInfo.m_nDeviceID != 0;
+    StartupCheckResult result = m_startupSelfCheck.Evaluate(
+        m_driverInitialized != FALSE,
+        cpuTemperature,
+        gpuTemperature,
+        m_nCurRPM[0].load(),
+        m_nCurRPM[1].load(),
+        gpuAvailable != FALSE);
+    const BOOL takeoverAllowed = result.takeoverAllowed ? TRUE : FALSE;
+    {
+        std::lock_guard<std::mutex> lock(m_startupCheckMutex);
+        m_startupCheckResult = std::make_shared<StartupCheckResult>(std::move(result));
+    }
+    if (takeoverAllowed && m_startupState.load() == StartupState::SelfChecking)
+    {
+        m_startupState = StartupState::CoreReady;
+        WriteDiagnosticLog("Startup self-check completed");
+        if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 1, 0);
+    }
 }
 
 int CCore::GetTargetDuty(int fanIndex) const

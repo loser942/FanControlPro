@@ -53,6 +53,7 @@
 #define IDC_STATIC_FAN_GROUP 1048
 #define IDC_STATIC_CPU_FAN_LABEL 1049
 #define IDC_STATIC_GPU_FAN_LABEL 1050
+#define IDC_BUTTON_EXPORT_DIAGNOSTICS 1051
 
 // 托盘菜单 ID
 #define IDR_SHOW    11
@@ -123,6 +124,7 @@ HICON m_hIcon;
     CButton m_ctlDesktopNotifications;
     CEdit m_ctlWarningTemp;
     CEdit m_ctlNotificationCooldown;
+    CButton m_ctlExportDiagnostics;
     
     // 手动模式风扇控件 ID 数组
     int m_nDutyEditCtlID[2][10];
@@ -147,6 +149,7 @@ public:
     afx_msg void OnBnClickedButtonReset();
     afx_msg void OnBnClickedButtonLoad();
     afx_msg void OnBnClickedButtonAdvanced();
+    afx_msg void OnBnClickedButtonExportDiagnostics();
     afx_msg void OnBnClickedCheckTakeover();
     afx_msg void OnBnClickedCheckForce();
     afx_msg void OnBnClickedCheckLinear();

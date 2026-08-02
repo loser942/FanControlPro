@@ -11,6 +11,7 @@
 #include "TakeoverVerificationPolicy.h"
 #include "SensorHealthPolicy.h"
 #include "TemperatureAlertPolicy.h"
+#include "StartupSelfCheckPolicy.h"
 
 constexpr UINT WM_CORE_INIT_RESULT = WM_APP + 2;
 
@@ -252,7 +253,11 @@ int m_nLastSetDutyEC[2];
      void SignalExit() { if (m_hExitEvent) SetEvent(m_hExitEvent); }
      StartupState GetStartupState() const { return m_startupState.load(); }
      DWORD GetInitError() const { return m_initError.load(); }
-     ControlVerification GetControlVerification() const;
+    ControlVerification GetControlVerification() const;
+    StartupCheckResult GetStartupCheckResult() const;
+    BOOL IsTakeoverAllowedByStartupCheck() const;
+    BOOL IsEcDllAvailable() const { return m_ecDllAvailable; }
+    BOOL IsDriverInitialized() const { return m_driverInitialized; }
      int GetTargetDuty(int fanIndex) const;
      int GetReadbackDuty(int fanIndex) const;
     void SetUserTakeoverAuthorized(BOOL authorized);
@@ -286,4 +291,10 @@ public:
 protected:
     CRITICAL_SECTION m_csConfig;
     std::mutex m_configPersistenceMutex;
+    mutable std::mutex m_startupCheckMutex;
+    StartupSelfCheckPolicy m_startupSelfCheck;
+    std::shared_ptr<const StartupCheckResult> m_startupCheckResult;
+    BOOL m_ecDllAvailable = FALSE;
+    BOOL m_driverInitialized = FALSE;
+    void RecordStartupCheck(int cpuTemperature, int gpuTemperature);
 };

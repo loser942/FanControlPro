@@ -5,6 +5,7 @@
 #include "FanControlPro.h"
 #include "FanControlProDlg.h"
 #include "AutorunCommandPolicy.h"
+#include "DiagnosticReport.h"
 #include "DialogLayoutPolicy.h"
 #include "afxdialogex.h"
 #include <strsafe.h>
@@ -16,6 +17,36 @@
 
 #define WM_SHOWTASK (WM_USER + 1)
 #define WM_DEFERRED_STARTUP (WM_APP + 1)
+
+namespace
+{
+bool IsCurrentProcessElevated()
+{
+    HANDLE token = nullptr;
+    TOKEN_ELEVATION elevation{};
+    DWORD bytes = 0;
+    const bool elevated = OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) &&
+        GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &bytes) &&
+        elevation.TokenIsElevated != 0;
+    if (token) CloseHandle(token);
+    return elevated;
+}
+
+CStringW GetWindowsVersionText()
+{
+    using RtlGetVersionFunction = LONG(WINAPI*)(OSVERSIONINFOW*);
+    OSVERSIONINFOW version{};
+    version.dwOSVersionInfoSize = sizeof(version);
+    const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    const RtlGetVersionFunction rtlGetVersion = ntdll == nullptr ? nullptr :
+        reinterpret_cast<RtlGetVersionFunction>(GetProcAddress(ntdll, "RtlGetVersion"));
+    if (rtlGetVersion == nullptr || rtlGetVersion(&version) != 0)
+        return L"未知";
+    CStringW text;
+    text.Format(L"%lu.%lu (内部版本 %lu)", version.dwMajorVersion, version.dwMinorVersion, version.dwBuildNumber);
+    return text;
+}
+}
 
 class CAboutDlg : public CDialogEx
 {
@@ -97,6 +128,7 @@ void CFanControlProDlg::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_CHECK_DESKTOP_NOTIFICATIONS, m_ctlDesktopNotifications);
     DDX_Control(pDX, IDC_EDIT_WARNING_TEMP, m_ctlWarningTemp);
     DDX_Control(pDX, IDC_EDIT_NOTIFICATION_COOLDOWN, m_ctlNotificationCooldown);
+    DDX_Control(pDX, IDC_BUTTON_EXPORT_DIAGNOSTICS, m_ctlExportDiagnostics);
 }
 
 BEGIN_MESSAGE_MAP(CFanControlProDlg, CDialogEx)
@@ -111,6 +143,7 @@ BEGIN_MESSAGE_MAP(CFanControlProDlg, CDialogEx)
     ON_BN_CLICKED(IDC_BUTTON_RESET, &CFanControlProDlg::OnBnClickedButtonReset)
     ON_BN_CLICKED(IDC_BUTTON_LOAD, &CFanControlProDlg::OnBnClickedButtonLoad)
     ON_BN_CLICKED(IDC_BUTTON_ADVANCED, &CFanControlProDlg::OnBnClickedButtonAdvanced)
+    ON_BN_CLICKED(IDC_BUTTON_EXPORT_DIAGNOSTICS, &CFanControlProDlg::OnBnClickedButtonExportDiagnostics)
     ON_BN_CLICKED(IDC_CHECK_TAKEOVER, &CFanControlProDlg::OnBnClickedCheckTakeover)
     ON_BN_CLICKED(IDC_CHECK_FORCE, &CFanControlProDlg::OnBnClickedCheckForce)
     ON_BN_CLICKED(IDC_CHECK_LINEAR, &CFanControlProDlg::OnBnClickedCheckLinear)
@@ -135,7 +168,7 @@ BOOL CFanControlProDlg::OnInitDialog()
      {
          WriteDiagnosticLog("Single-instance mutex already exists");
          CloseHandle(hMutex);
-        AfxMessageBox(L"Another FanControlPro instance is already running.");
+        AfxMessageBox(L"已有一个 FanControl Pro 实例正在运行。");
          ExitProcess(0);
          return FALSE;
      }
@@ -215,11 +248,18 @@ LRESULT CFanControlProDlg::OnDeferredStartup(WPARAM, LPARAM)
 
 LRESULT CFanControlProDlg::OnCoreInitResult(WPARAM wParam, LPARAM)
 {
-    if (wParam != 0)
+    if (wParam == 1)
     {
-        SetStartupStatus(L"监控已就绪；请确认读数后再启用接管");
+        const StartupCheckResult check = m_core.GetStartupCheckResult();
+        SetStartupStatus(check.statusMessage.c_str());
         SetTakeoverControlsEnabled(TRUE);
         WriteDiagnosticLog("UI core initialization succeeded");
+    }
+    else if (wParam == 2)
+    {
+        SetStartupStatus(L"正在进行启动自检，BIOS 风扇控制保持启用");
+        SetTakeoverControlsEnabled(FALSE);
+        WriteDiagnosticLog("UI startup self-check started");
     }
     else
     {
@@ -243,6 +283,10 @@ void CFanControlProDlg::SetTakeoverControlsEnabled(BOOL enabled)
     m_ctlTakeOver.EnableWindow(enabled);
     m_ctlForcedCooling.EnableWindow(enabled);
     m_ctlMode.EnableWindow(enabled);
+    m_ctlCpuFanSlider.EnableWindow(enabled);
+    m_ctlGpuFanSlider.EnableWindow(enabled);
+    m_ctlCpuFanEdit.EnableWindow(enabled);
+    m_ctlGpuFanEdit.EnableWindow(enabled);
 }
 
 void CFanControlProDlg::OnSysCommand(UINT nID, LPARAM lParam)
@@ -396,6 +440,10 @@ CloseHandle(m_hCoreThread);
 
 void CFanControlProDlg::UpdateGui(BOOL bFull)
 {
+    const StartupCheckResult startupCheck = m_core.GetStartupCheckResult();
+    SetStartupStatus(startupCheck.statusMessage.c_str());
+    SetTakeoverControlsEnabled(m_core.GetStartupState() == StartupState::CoreReady &&
+        m_core.IsTakeoverAllowedByStartupCheck());
     CStringW text;
     text.Format(L"CPU: %d°C", m_core.m_nCurTemp[0].load());
     m_ctlCpuTempText.SetWindowTextW(text);
@@ -768,6 +816,7 @@ void CFanControlProDlg::SetAdvancedMode(BOOL bAdvanced)
         IDC_CHECK_TAKEOVER, IDC_CHECK_FORCE, IDC_STATIC_CPU_FAN_LABEL,
         IDC_SLIDER_CPU_FAN, IDC_EDIT_CPU_FAN, IDC_STATIC_GPU_FAN_LABEL,
         IDC_SLIDER_GPU_FAN, IDC_EDIT_GPU_FAN, IDC_CHECK_AUTORUN
+        , IDC_BUTTON_EXPORT_DIAGNOSTICS
     };
     for (int id : monitoringControls)
     {
@@ -791,6 +840,55 @@ void CFanControlProDlg::SetAdvancedMode(BOOL bAdvanced)
 void CFanControlProDlg::OnBnClickedButtonAdvanced()
 {
     SetAdvancedMode(!m_bAdvancedMode);
+}
+
+void CFanControlProDlg::OnBnClickedButtonExportDiagnostics()
+{
+    CFileDialog dialog(FALSE, L"txt", L"FanControlPro-diagnostics.txt",
+        OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY,
+        L"文本文件 (*.txt)|*.txt||", this);
+    if (dialog.DoModal() != IDOK)
+        return;
+
+    std::vector<std::wstring> logLines;
+    CStdioFile logFile;
+    const CStringW logPath = ::GetExePath() + L"FanControlPro.debug.log";
+    if (logFile.Open(logPath, CFile::modeRead | CFile::typeText))
+    {
+        CStringW line;
+        while (logFile.ReadString(line))
+            logLines.emplace_back(line.GetString());
+        logFile.Close();
+    }
+
+    const DiagnosticReportInput input{
+        L"FanControl Pro v8",
+        GetWindowsVersionText().GetString(),
+        IsCurrentProcessElevated(),
+        m_core.IsEcDllAvailable() != FALSE,
+        m_core.IsDriverInitialized() != FALSE,
+        m_core.GetStartupCheckResult(),
+        m_core.m_nCurTemp[0].load(),
+        m_core.m_nCurTemp[1].load(),
+        m_core.m_nCurRPM[0].load(),
+        m_core.m_nCurRPM[1].load(),
+        m_core.GetControlVerification(),
+        m_core.GetInitError(),
+        std::move(logLines)
+    };
+    const std::string report = BuildDiagnosticReportUtf8(input);
+    try
+    {
+        CFile output(dialog.GetPathName(), CFile::modeCreate | CFile::modeWrite | CFile::typeBinary);
+        output.Write(report.data(), static_cast<UINT>(report.size()));
+        output.Close();
+        AfxMessageBox(L"诊断报告已导出");
+    }
+    catch (CFileException* exception)
+    {
+        exception->Delete();
+        AfxMessageBox(L"无法写入诊断报告，请检查保存位置");
+    }
 }
 
 void CFanControlProDlg::ApplyResponsiveLayout()
