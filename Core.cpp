@@ -996,6 +996,11 @@ void CCore::SetUserTakeoverAuthorized(BOOL authorized)
 
 void CCore::EnableForcedCooling(BOOL enable)
  {
+     if (enable && !CanEnableForcedCooling(m_startupState.load(), m_userTakeoverAuthorized.load()))
+     {
+         m_bForcedCooling = FALSE;
+         return;
+     }
      EnterCriticalSection(&m_csConfig);
      m_bForcedCooling = enable;
      if (enable)

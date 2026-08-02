@@ -11,3 +11,8 @@ inline bool CanWriteFans(StartupState state, bool userAuthorized)
 {
     return state == StartupState::CoreReady && userAuthorized;
 }
+
+inline bool CanEnableForcedCooling(StartupState state, bool userAuthorized)
+{
+    return CanWriteFans(state, userAuthorized);
+}

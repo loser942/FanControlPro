@@ -172,10 +172,17 @@ public:
     virtual void OnCancel();
     
     // 开机自启
-    BOOL SetAutorunReg(BOOL bWrite, BOOL bAutorun = TRUE);
+    BOOL QueryAutorunReg() const;
+    BOOL CreateAutorunReg();
+    BOOL DeleteAutorunReg();
+    BOOL QueryAutorunTask() const;
+    BOOL CreateAutorunTask();
+    BOOL DeleteAutorunTask();
+    BOOL RunHiddenCommand(PCWSTR commandLine, DWORD* exitCode) const;
+    BOOL CreateTaskXml(PCWSTR xmlPath, PCWSTR targetPath) const;
     BOOL SetAutorunTask(BOOL bWrite, BOOL bAutorun = TRUE);
     CStringA ExecuteCmd(CStringA str);
-    BOOL CreateTaskXml(PCSTR strXmlPath, PCSTR strTargetPath);
+    BOOL CreateTaskXml(PCSTR xmlPath, PCSTR targetPath);
     CString GetExePath();
     BOOL CheckInputFrequency(int nFrequency);
 };

@@ -100,6 +100,7 @@
   <ItemGroup>
     <ClInclude Include="DialogLayoutPolicy.h" />
     <ClInclude Include="ControlVerificationState.h" />
+    <ClInclude Include="AutorunCommandPolicy.h" />
     <ClInclude Include="ConfigPersistence.h" />
     <ClInclude Include="Core.h" />
     <ClInclude Include="SensorHealthPolicy.h" />

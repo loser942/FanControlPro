@@ -4,9 +4,11 @@
 #include "stdafx.h"
 #include "FanControlPro.h"
 #include "FanControlProDlg.h"
+#include "AutorunCommandPolicy.h"
 #include "DialogLayoutPolicy.h"
 #include "afxdialogex.h"
 #include <strsafe.h>
+#include <vector>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -207,7 +209,7 @@ LRESULT CFanControlProDlg::OnDeferredStartup(WPARAM, LPARAM)
     WriteDiagnosticLog("Optional tray setup started");
     SetTray(L"FanControl Pro - 智能风扇控制");
     WriteDiagnosticLog("Optional autorun status check started");
-    m_ctlAutorun.SetCheck(SetAutorunReg(FALSE) || SetAutorunTask(FALSE));
+    m_ctlAutorun.SetCheck(QueryAutorunReg() || QueryAutorunTask());
     return 0;
 }
 
@@ -662,7 +664,16 @@ LRESULT CFanControlProDlg::OnShowTask(WPARAM wParam, LPARAM lParam)
         SetForegroundWindow();
         int xx = TrackPopupMenu(menu, TPM_RETURNCMD, point.x, point.y, NULL, this->m_hWnd, NULL);
         if (xx == IDR_SHOW) OnCancel();
-        else if (xx == IDR_FORCED) m_core.EnableForcedCooling(!m_core.m_bForcedCooling.load());
+        else if (xx == IDR_FORCED)
+        {
+            if (!CanEnableForcedCooling(m_core.GetStartupState(), m_core.m_userTakeoverAuthorized.load()))
+            {
+                m_ctlForcedCooling.SetCheck(FALSE);
+                AfxMessageBox(L"请先启用风扇接管");
+            }
+            else
+                m_core.EnableForcedCooling(!m_core.m_bForcedCooling.load());
+        }
         else if (xx == IDR_EXIT) OnOK();
 HMENU hmenu = menu.Detach();
          if (hmenu) DestroyMenu(hmenu);
@@ -704,6 +715,13 @@ void CFanControlProDlg::OnBnClickedCheckTakeover()
 
 void CFanControlProDlg::OnBnClickedCheckForce()
  {
+      if (m_ctlForcedCooling.GetCheck() &&
+          !CanEnableForcedCooling(m_core.GetStartupState(), m_core.m_userTakeoverAuthorized.load()))
+      {
+          m_ctlForcedCooling.SetCheck(FALSE);
+          AfxMessageBox(L"请先启用风扇接管");
+          return;
+      }
       m_core.EnableForcedCooling(m_ctlForcedCooling.GetCheck());
       m_core.LockConfig();
       const int controlMode = m_core.m_config.ControlMode;
@@ -793,16 +811,16 @@ void CFanControlProDlg::OnBnClickedCheckAutorun()
         int rv = MessageBox(L"请选择开机自动启动方式：\r\n\r\n\"是\"=注册表方式（简单）\r\n\"否\"=任务计划程序（推荐）\r\n\"取消\"=放弃设置",
             L"设置开机自启", MB_YESNOCANCEL);
 BOOL bSuccess = FALSE;
-         if (IDYES == rv) { bSuccess = SetAutorunReg(TRUE, TRUE); SetAutorunReg(FALSE); }
-         else if (IDNO == rv) { bSuccess = SetAutorunTask(TRUE, TRUE); SetAutorunTask(FALSE); }
+         if (IDYES == rv) { bSuccess = CreateAutorunReg(); DeleteAutorunTask(); }
+         else if (IDNO == rv) { bSuccess = CreateAutorunTask(); DeleteAutorunReg(); }
          if (!bSuccess) { m_ctlAutorun.SetCheck(FALSE); AfxMessageBox(L"开机自启设置失败，请以管理员身份运行。"); }
          else { m_ctlAutorun.SetCheck(TRUE); }
     }
     else
     {
-        SetAutorunReg(FALSE);
-        SetAutorunTask(FALSE);
-        m_ctlAutorun.SetCheck(SetAutorunReg(FALSE) || SetAutorunTask(FALSE));
+        DeleteAutorunReg();
+        DeleteAutorunTask();
+        m_ctlAutorun.SetCheck(QueryAutorunReg() || QueryAutorunTask());
     }
 }
 
@@ -869,119 +887,149 @@ void CFanControlProDlg::OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBa
     CDialogEx::OnHScroll(nSBCode, nPos, pScrollBar);
 }
 
-BOOL CFanControlProDlg::SetAutorunReg(BOOL bWrite, BOOL bAutorun)
+namespace
 {
-    HKEY hKey;
-    if (RegOpenKeyW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", &hKey) != ERROR_SUCCESS)
+constexpr PCWSTR kAutorunKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+constexpr PCWSTR kAutorunValue = L"FanControlPro";
+constexpr PCWSTR kAutorunTask = L"FanControlPro";
+
+CStringW CurrentExecutablePath()
+{
+    return ::GetExePath() + L"FanControlPro.exe";
+}
+}
+
+BOOL CFanControlProDlg::QueryAutorunReg() const
+{
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kAutorunKey, 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
         return FALSE;
-    PCWSTR strProduct = L"FanControlPro";
-    if (bWrite)
+    DWORD type = 0;
+    DWORD size = 0;
+    const LONG result = RegQueryValueExW(key, kAutorunValue, nullptr, &type, nullptr, &size);
+    if (result != ERROR_SUCCESS || type != REG_SZ || size < sizeof(wchar_t))
     {
-if (bAutorun)
-         {
-             CStringW strPath = GetExePath() + L"\\FanControlPro.exe";
-         // REG_SZ 需要包含结尾 \0 的字节数
-         unsigned long nSize = (strPath.GetLength() + 1) * sizeof(TCHAR);
-         LPWSTR pBuf = strPath.GetBuffer(nSize);
-         LONG lResult = RegSetValueExW(hKey, strProduct, 0, REG_SZ,
-            (const BYTE *)pBuf, nSize);
-         strPath.ReleaseBuffer();
-         if (lResult != ERROR_SUCCESS)
-            {
-                RegCloseKey(hKey);
-                return FALSE;
-            }
-        }
-        else { RegDeleteValueW(hKey, strProduct); }
-        RegCloseKey(hKey);
+        RegCloseKey(key);
+        return FALSE;
     }
-    else
-    {
-        unsigned long lSize = 0;
-        if (RegQueryValueExW(hKey, strProduct, NULL, NULL, NULL, &lSize) != ERROR_SUCCESS)
-        {
-            RegCloseKey(hKey);
-            return FALSE;
-        }
-        RegCloseKey(hKey);
-        return lSize > 0 ? TRUE : FALSE;
-    }
-    return TRUE;
+    std::wstring command(size / sizeof(wchar_t), L'\0');
+    const bool read = RegQueryValueExW(key, kAutorunValue, nullptr, &type,
+        reinterpret_cast<BYTE*>(&command[0]), &size) == ERROR_SUCCESS;
+    RegCloseKey(key);
+    if (!read)
+        return FALSE;
+    command.resize(wcsnlen(command.c_str(), command.size()));
+    return IsExactAutorunCommand(command, CurrentExecutablePath().GetString()) ? TRUE : FALSE;
+}
+
+BOOL CFanControlProDlg::CreateAutorunReg()
+{
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, kAutorunKey, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
+        return FALSE;
+    const CStringW command = L"\"" + CurrentExecutablePath() + L"\"";
+    const DWORD bytes = static_cast<DWORD>((command.GetLength() + 1) * sizeof(wchar_t));
+    const LONG result = RegSetValueExW(key, kAutorunValue, 0, REG_SZ,
+        reinterpret_cast<const BYTE*>(command.GetString()), bytes);
+    RegCloseKey(key);
+    return result == ERROR_SUCCESS;
+}
+
+BOOL CFanControlProDlg::DeleteAutorunReg()
+{
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kAutorunKey, 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS)
+        return TRUE;
+    const LONG result = RegDeleteValueW(key, kAutorunValue);
+    RegCloseKey(key);
+    return result == ERROR_SUCCESS || result == ERROR_FILE_NOT_FOUND;
+}
+
+BOOL CFanControlProDlg::RunHiddenCommand(PCWSTR commandLine, DWORD* exitCode) const
+{
+    std::vector<wchar_t> command(commandLine, commandLine + wcslen(commandLine) + 1);
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+        nullptr, nullptr, &startup, &process))
+        return FALSE;
+    const DWORD waitResult = WaitForSingleObject(process.hProcess, 10000);
+    if (waitResult == WAIT_OBJECT_0 && exitCode)
+        GetExitCodeProcess(process.hProcess, exitCode);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return waitResult == WAIT_OBJECT_0;
+}
+
+BOOL CFanControlProDlg::QueryAutorunTask() const
+{
+    DWORD exitCode = 1;
+    return RunHiddenCommand(L"schtasks.exe /Query /TN \"FanControlPro\"", &exitCode) && exitCode == 0;
+}
+
+BOOL CFanControlProDlg::CreateAutorunTask()
+{
+    const CStringW xmlPath = ::GetExePath() + L"FanControlPro.task.xml";
+    if (!CreateTaskXml(xmlPath, CurrentExecutablePath()))
+        return FALSE;
+    CStringW command;
+    command.Format(L"schtasks.exe /Create /F /XML \"%s\" /TN \"FanControlPro\"", xmlPath.GetString());
+    DWORD exitCode = 1;
+    const BOOL created = RunHiddenCommand(command, &exitCode) && exitCode == 0;
+    DeleteFileW(xmlPath);
+    return created;
+}
+
+BOOL CFanControlProDlg::DeleteAutorunTask()
+{
+    DWORD exitCode = 1;
+    return RunHiddenCommand(L"schtasks.exe /Delete /F /TN \"FanControlPro\"", &exitCode) &&
+        (exitCode == 0 || !QueryAutorunTask());
+}
+
+BOOL CFanControlProDlg::CreateTaskXml(PCWSTR xmlPath, PCWSTR targetPath) const
+{
+    CStringW xml;
+    xml.Format(L"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
+        L"<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\r\n"
+        L"<Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>\r\n"
+        L"<Principals><Principal id=\"Author\"><GroupId>S-1-5-32-545</GroupId>"
+        L"<RunLevel>HighestAvailable</RunLevel></Principal></Principals>\r\n"
+        L"<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><Enabled>true</Enabled>"
+        L"<Hidden>true</Hidden><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>\r\n"
+        L"<Actions Context=\"Author\"><Exec><Command>%s</Command></Exec></Actions>\r\n</Task>\r\n", targetPath);
+    const int byteCount = WideCharToMultiByte(CP_UTF8, 0, xml, xml.GetLength(), nullptr, 0, nullptr, nullptr);
+    if (byteCount <= 0)
+        return FALSE;
+    std::vector<char> bytes(byteCount);
+    WideCharToMultiByte(CP_UTF8, 0, xml, xml.GetLength(), bytes.data(), byteCount, nullptr, nullptr);
+    HANDLE file = CreateFileW(xmlPath, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return FALSE;
+    DWORD written = 0;
+    const BOOL success = WriteFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr) && written == bytes.size();
+    CloseHandle(file);
+    return success;
 }
 
 BOOL CFanControlProDlg::SetAutorunTask(BOOL bWrite, BOOL bAutorun)
 {
-    CStringW strTaskName = L"FanControlPro";
-    CStringW strPath = GetExePath() + L"\\FanControlPro.exe";
-    CStringW strXmlPath = GetExePath() + L"\\task.xml";
-    CStringA taskNameA(CW2A(strTaskName, CP_ACP));
-    CStringA pathA(CW2A(strPath, CP_ACP));
-    CStringA xmlPathA(CW2A(strXmlPath, CP_ACP));
-    CStringA strcmd;
-    if (bWrite)
-    {
-        if (bAutorun)
-        {
-            if (!CreateTaskXml(xmlPathA, pathA)) return FALSE;
-            strcmd.Format("SCHTASKS /Create /F /XML \"%s\" /TN \"%s\"", xmlPathA, taskNameA);
-        }
-        else { strcmd = "SCHTASKS /Delete /F /TN \"" + taskNameA + "\""; }
-    }
-    else { strcmd = "SCHTASKS /Query /TN \"" + taskNameA + "\""; }
-    CStringA rs = ExecuteCmd(strcmd);
-    if (bWrite && bAutorun) remove(xmlPathA);
-    if (rs.Find("拒绝访问") >= 0) return FALSE;
-    if (bWrite && bAutorun && rs.Find("成功") >= 0) return TRUE;
-    if (!bWrite && rs.Find(taskNameA) >= 0) return TRUE;
-    if (bWrite && !bAutorun) return TRUE;
-    return FALSE;
+    if (!bWrite)
+        return QueryAutorunTask();
+    return bAutorun ? CreateAutorunTask() : DeleteAutorunTask();
 }
 
 CStringA CFanControlProDlg::ExecuteCmd(CStringA str)
 {
-    SECURITY_ATTRIBUTES sa;
-    HANDLE hRead, hWrite;
-    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
-    sa.lpSecurityDescriptor = NULL;
-    sa.bInheritHandle = TRUE;
-    if (!CreatePipe(&hRead, &hWrite, &sa, 0)) return "[执行失败]";
-    STARTUPINFOA si = { sizeof(si) };
-    PROCESS_INFORMATION pi;
-    si.hStdError = hWrite;
-    si.hStdOutput = hWrite;
-    si.wShowWindow = SW_HIDE;
-    si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
-int cmdLen = str.GetLength() + 1;
-     char* cmdline = new char[cmdLen];
-     strcpy_s(cmdline, cmdLen, str);
-     if (!CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, NULL, NULL, NULL, &si, &pi))
-     {
-         CloseHandle(hWrite);
-         CloseHandle(hRead);
-         delete[] cmdline;
-        return "[执行失败]";
-    }
-delete[] cmdline;
-     CloseHandle(hWrite);
-     // ── 等待子进程结束（最多 10 秒，防止 SCHTASKS 卡死 UI）──
-     DWORD waitResult = WaitForSingleObject(pi.hProcess, 10000);
-     char buffer[4096];
-     CStringA output;
-     DWORD byteRead;
-     while (ReadFile(hRead, buffer, sizeof(buffer) - 1, &byteRead, NULL) && byteRead > 0)
-     {
-         buffer[byteRead] = '\0';
-         output += buffer;
-     }
-     if (waitResult == WAIT_TIMEOUT)
-     {
-         TerminateProcess(pi.hProcess, 1);
-         output += "\r\n[命令超时已终止]";
-     }
-    CloseHandle(hRead);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    return output;
+    CStringW command(CA2W(str, CP_UTF8));
+    DWORD exitCode = 1;
+    RunHiddenCommand(command, &exitCode);
+    CStringA result;
+    result.Format("%lu", exitCode);
+    return result;
 }
 
 BOOL CFanControlProDlg::CreateTaskXml(PCSTR strXmlPath, PCSTR strTargetPath)

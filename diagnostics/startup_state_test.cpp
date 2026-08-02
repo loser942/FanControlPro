@@ -15,5 +15,7 @@ int main()
     assert(!CanWriteFans(StartupState::Exiting, true));
     assert(!CanWriteFans(StartupState::CoreReady, false));
     assert(CanWriteFans(StartupState::CoreReady, true));
+    assert(!CanEnableForcedCooling(StartupState::CoreReady, false));
+    assert(CanEnableForcedCooling(StartupState::CoreReady, true));
     return 0;
 }
