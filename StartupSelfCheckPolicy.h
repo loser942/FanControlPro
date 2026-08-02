@@ -50,7 +50,7 @@ public:
             return MonitoringOnly({ L"核心初始化失败" }, std::move(warnings), L"核心初始化失败，仅监控模式");
         }
 
-        if (!IsReasonableTemperature(cpuTemperature) || !IsReasonableTemperature(gpuTemperature))
+        if (!IsReasonableTemperature(cpuTemperature) || (gpuAvailable && !IsReasonableTemperature(gpuTemperature)))
         {
             locked_ = true;
             consecutiveValidTemperatureSamples_ = 0;

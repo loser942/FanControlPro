@@ -36,6 +36,25 @@ int main()
     assert(!warningResult.warnings.empty());
     assert(!warningResult.takeoverAllowed);
 
+    StartupSelfCheckPolicy unavailableGpuPolicy;
+    const StartupCheckResult unavailableGpuFirst = unavailableGpuPolicy.Evaluate(true, 45, 0, 1800, 0, false);
+    assert(unavailableGpuFirst.blockingFaults.empty());
+    assert(unavailableGpuFirst.warnings.size() == 1);
+    assert(unavailableGpuFirst.warnings[0] == L"GPU 不可用");
+    assert(unavailableGpuFirst.consecutiveValidTemperatureSamples == 1);
+    assert(!unavailableGpuFirst.takeoverAllowed);
+    const StartupCheckResult unavailableGpuSecond = unavailableGpuPolicy.Evaluate(true, 46, 0, 1800, 0, false);
+    assert(unavailableGpuSecond.blockingFaults.empty());
+    assert(unavailableGpuSecond.warnings.size() == 1);
+    assert(unavailableGpuSecond.consecutiveValidTemperatureSamples == 2);
+    assert(!unavailableGpuSecond.takeoverAllowed);
+    const StartupCheckResult unavailableGpuThird = unavailableGpuPolicy.Evaluate(true, 47, 0, 1800, 0, false);
+    assert(unavailableGpuThird.blockingFaults.empty());
+    assert(unavailableGpuThird.warnings.size() == 1);
+    assert(unavailableGpuThird.warnings[0] == L"GPU 不可用");
+    assert(unavailableGpuThird.consecutiveValidTemperatureSamples == 3);
+    assert(unavailableGpuThird.takeoverAllowed);
+
     StartupSelfCheckPolicy coreFailurePolicy;
     const StartupCheckResult coreFailureResult = coreFailurePolicy.Evaluate(false, 47, 54, 1800, 1600, true);
     assert(!coreFailureResult.takeoverAllowed);
