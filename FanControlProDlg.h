@@ -47,6 +47,8 @@
 #define IDC_STATIC_ADVANCED_COOLDOWN 1042
 #define IDC_STATIC_ADVANCED_PRESETS 1043
 #define IDC_STATIC_ADVANCED_MAX_DUTY 1044
+#define IDC_STATIC_CONTROL_STATUS 1045
+#define IDC_STATIC_WARNING_STATUS 1046
 
 // 托盘菜单 ID
 #define IDR_SHOW    11
@@ -111,6 +113,8 @@ HICON m_hIcon;
     CSliderCtrl m_ctlMaxDutySlider;
     CEdit m_ctlMaxDutyEdit;
     CStatic m_ctlStartupStatus;
+    CStatic m_ctlControlStatus;
+    CStatic m_ctlWarningStatus;
     CButton m_ctlDesktopNotifications;
     CEdit m_ctlWarningTemp;
     CEdit m_ctlNotificationCooldown;
@@ -150,6 +154,7 @@ public:
     
     // 辅助函数
     void UpdateGui(BOOL bFull);
+    void UpdateControlStatus();
     void UpdateWarningStatus();
     void ApplyResponsiveLayout();
     BOOL CheckAndSave();

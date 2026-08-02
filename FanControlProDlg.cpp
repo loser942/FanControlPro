@@ -88,6 +88,8 @@ void CFanControlProDlg::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_MAX_DUTY_SLIDER, m_ctlMaxDutySlider);
     DDX_Control(pDX, IDC_EDIT_MAX_DUTY, m_ctlMaxDutyEdit);
     DDX_Control(pDX, IDC_STATIC_STARTUP_STATUS, m_ctlStartupStatus);
+    DDX_Control(pDX, IDC_STATIC_CONTROL_STATUS, m_ctlControlStatus);
+    DDX_Control(pDX, IDC_STATIC_WARNING_STATUS, m_ctlWarningStatus);
     DDX_Control(pDX, IDC_CHECK_DESKTOP_NOTIFICATIONS, m_ctlDesktopNotifications);
     DDX_Control(pDX, IDC_EDIT_WARNING_TEMP, m_ctlWarningTemp);
     DDX_Control(pDX, IDC_EDIT_NOTIFICATION_COOLDOWN, m_ctlNotificationCooldown);
@@ -446,6 +448,7 @@ void CFanControlProDlg::UpdateGui(BOOL bFull)
     {
         m_ctlForcedCooling.SetCheck(m_core.m_bForcedCooling.load());
     }
+    UpdateControlStatus();
     if (!bFull)
     {
         UpdateWarningStatus();
@@ -556,8 +559,39 @@ BOOL CFanControlProDlg::CheckAndSave()
 
 void CFanControlProDlg::UpdateWarningStatus()
 {
-    if (m_core.IsTemperatureWarning())
-        m_ctlStartupStatus.SetWindowTextW(L"温度告警：请检查散热状态");
+    if (!m_ctlWarningStatus.GetSafeHwnd())
+        return;
+
+    m_ctlWarningStatus.SetWindowTextW(
+        m_core.IsTemperatureWarning() ? L"温度告警：请检查散热状态" : L"温度正常");
+}
+
+void CFanControlProDlg::UpdateControlStatus()
+{
+    if (!m_ctlControlStatus.GetSafeHwnd())
+        return;
+
+    CStringW text;
+    switch (m_core.GetControlVerification())
+    {
+    case ControlVerification::BiosControl:
+        text = L"BIOS 控制中";
+        break;
+    case ControlVerification::RequestingTakeover:
+        text = L"正在请求接管";
+        break;
+    case ControlVerification::Active:
+        text.Format(
+            L"接管已生效：CPU 目标 %d%% / EC %d%%\r\nGPU 目标 %d%% / EC %d%%",
+            m_core.GetTargetDuty(0), m_core.GetReadbackDuty(0),
+            m_core.GetTargetDuty(1), m_core.GetReadbackDuty(1));
+        break;
+    case ControlVerification::Fault:
+    default:
+        text = L"接管状态异常";
+        break;
+    }
+    m_ctlControlStatus.SetWindowTextW(text);
 }
 
 void CFanControlProDlg::OnBnClickedButtonSave()
