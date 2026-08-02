@@ -1,6 +1,6 @@
 #pragma once
 
-enum class StartupState { UiReady, CoreStarting, CoreReady, CoreFailed, Exiting };
+enum class StartupState { UiReady, CoreStarting, SelfChecking, CoreReady, CoreFailed, Exiting };
 
 inline bool CanEnableTakeover(StartupState state)
 {
