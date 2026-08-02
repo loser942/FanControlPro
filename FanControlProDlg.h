@@ -180,9 +180,6 @@ public:
     BOOL DeleteAutorunTask();
     BOOL RunHiddenCommand(PCWSTR commandLine, DWORD* exitCode) const;
     BOOL CreateTaskXml(PCWSTR xmlPath, PCWSTR targetPath) const;
-    BOOL SetAutorunTask(BOOL bWrite, BOOL bAutorun = TRUE);
-    CStringA ExecuteCmd(CStringA str);
-    BOOL CreateTaskXml(PCSTR xmlPath, PCSTR targetPath);
     CString GetExePath();
     BOOL CheckInputFrequency(int nFrequency);
 };
