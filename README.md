@@ -1,72 +1,75 @@
 # FanControl Pro
 
-> 🔧 本项目基于 [xl-Synapse/MyFanControl](https://github.com/xl-Synapse/MyFanControl) 修改而来
+适用于部分蓝天（Clevo）模具笔记本的 Windows 风扇控制工具。本项目基于 [xl-Synapse/MyFanControl](https://github.com/xl-Synapse/MyFanControl) 改造，提供 CPU/GPU 温度读取、自动风扇曲线、手动控制及风扇接管状态验证。
 
-**蓝天 (Clevo) 模具笔记本智能风扇控制工具**
+> 本程序会直接与笔记本 EC（嵌入式控制器）交互。不同机型的 EC 寄存器定义并不通用；仅应在确认兼容的 Clevo 模具上使用。首次启用前请确认温度和转速读数合理，并保留 BIOS 默认控制作为回退方式。
 
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)]()
-[![Language](https://img.shields.io/badge/language-C%2B%2B%20MFC-orange)]()
-[![License](https://img.shields.io/badge/license-MIT-green)]()
+## 下载与安装
 
----
+1. 在 [最新发布页](../../releases/latest) 下载 `FanControlPro.exe`。
+2. 在 [运行时依赖包](../../releases/tag/v1.0-runtime) 下载并解压 `MyFanControl-v1.0.zip`。
+3. 将 `FanControlPro.exe` 放到运行时依赖文件同级目录，确保至少包含 `ClevoEcInfo.dll` 和 `NVGPU_DLL.dll`。
+4. 以管理员身份运行 `NTPortDrvSetup.exe` 安装底层驱动。首次运行或 Windows 拒绝硬件访问时，请以管理员身份启动 FanControl Pro。
+5. 启动程序后先观察 CPU/GPU 温度与风扇 RPM；确认正常后，再在界面中显式启用风扇接管。
 
-## ✨ 特性
+当前发布的 `FanControlPro.exe` SHA-256：
 
-| 类别 | 功能 |
-|------|------|
-| 🎮 控制模式 | 自动（阶梯/线性）、手动、强冷 |
-| 🌡️ 温度曲线 | CPU/GPU 独立 10 档调速，针对 i5-13500H + RTX 4060 优化 |
-| 🔊 平滑过渡 | 升速 +4%/次、降速 -2%/次，消除风扇忽高忽低 |
-| 🛡️ EC 防抢夺 | 独立每秒刷新 + 接管检测自动夺回 |
-| 💥 崩溃安全 | 异常退出后启动时自动归还 BIOS 控制权 |
-| 🔍 写后验证 | 读取 EC 实际 duty 对比写入值，偏差 >15% 自动夺回 |
-| 🔐 线程安全 | CRITICAL_SECTION 锁护 m_config 跨线程访问，热路径快照隔离 |
-| 🔒 单实例 | CreateMutex 互斥，防止多进程争抢 EC |
-| 🎨 Win11 UI | 温度进度条、实时 RPM 显示、托盘告警 |
-| 🚀 开机自启 | 注册表 + 任务计划双保险 |
-| ⚡ 预设切换 | 静音/性能/平衡一键切换 |
+```text
+5F9FEE613DAFAF4D18792C5A9D0A7F37D1DDDA7C62A9AFFAA8BD1136D4E38A3E
+```
 
-## 🖥️ 适用机型
+## 使用说明
 
-- **硬件**：蓝天 (Clevo) 模具笔记本
-- **测试配置**：i5-13500H + RTX 4060 + Windows 11
+- **自动模式**：根据 CPU/GPU 温度曲线调节风扇，升速与降速采用平滑过渡以避免转速频繁跳变。
+- **手动模式**：由用户设置目标占空比，适合短时间测试；请持续观察温度。
+- **强冷模式**：以高转速优先散热；退出后会恢复此前的控制模式。
+- **接管状态**：程序会显示请求接管、已生效或异常状态，并对写入后的 EC 占空比进行校验。
+- **托盘与通知**：最小化后可从系统托盘恢复。高温通知已做节流，避免重复弹窗干扰操作。
 
-## 🔧 构建与使用
+程序首次启动时默认保留 BIOS 风扇控制。正常退出会尝试归还 BIOS 控制权；遇到异常状态时，请关闭程序、重启电脑，并确认 BIOS 风扇策略恢复正常后再继续排查。
 
-1. **Visual Studio 2022**（含 C++ MFC 支持）打开 `FanControlPro.sln`
-2. 编译生成 `FanControlPro.exe`
-3. 从 [Releases](../../releases) 下载 `MyFanControl-v1.0.zip`（运行时依赖）
-4. 解压后放入编译输出目录（与 `FanControlPro.exe` 同级）
-5. 运行 `NTPortDrvSetup.exe` 安装驱动
+## 适用范围
 
-> ⚠️ **重要提示**：Releases 中的 Zip 包仅包含运行时 DLL 依赖，**不含可执行程序**，必须先编译本项目。
+| 项目 | 说明 |
+| --- | --- |
+| 操作系统 | Windows 10 / Windows 11（Win32） |
+| 已验证配置 | Intel Core i5-13500H + NVIDIA RTX 4060 + Windows 11 |
+| 目标设备 | 使用兼容 EC 接口的 Clevo 模具笔记本 |
+| 不适用情形 | 台式机、未知 EC 机型、温度或 RPM 读数异常的设备 |
 
-## 📋 版本历史
+“已验证配置”不代表所有同系列机型都兼容。请勿在不确定硬件型号的情况下开启接管或设置开机自启。
 
-| 版本 | 改进内容 |
-|------|---------|
-| **v21** | 🛡️ openclaw 审查 2 项：GPU DLL 全部 19 个函数指针纳入安全检查 / 强冷退出还原保存的 ControlMode（非硬编码 0） |
-| **v20** | 🛡️ 本轮审查 5 项：CGPUInfo 构造器全部指针/成员归零 / 温度异常 3 次后保留旧值 / CreateThread 失败弹错退出 / OnTimer>300 OnOK 后立即 return / ExecuteCmd WaitForSingleObject 10s 超时终止 |
-| **v19** | 🔧 Claude 审查 8 项：OnOK ExitProcess+句柄关闭 / m_pfnSetFanDuty 判空 / Update 首帧跳过重试 / OnTimer 防重入 / ExecuteCmd 动态缓冲+ReadFile 修复 / Autorun 返回值检查 |
-| **v18** | 🔧 互斥体句柄泄漏修复（CreateMutex→保存→OnOK释放）+ GetExePath 改用 strrchr 增强健壮性 |
-| **v17** | 🛡️ GPT 3项高优：GPU DLL 全函数 NULL 检查（Update/LockFrequency 路径）/ 失败路径成员归零 / 线程卡死 ExitProcess 原子退出防竞态 |
-| **v16** | 🛡️ m_pfnGetTempFanDuty NULL 检查：Init() 拒绝初始化 + Update() 调用前防御 return，消除最后一个 DLL 函数指针空调用风险 |
-| **v15** | 🔥 v14 编译错误热修复：LoadConfig 缺 `}` / SaveConfig 多 `)` / OnTimer 死代码清理 |
-| **v14** | 🐛 OP 审查 7 项修复：OnInitDialog 签名 void→BOOL、TRACE1 参数溢出→TRACE、m_bForcedCooling 加锁快照、计数器误判修复、OnOK 防 UAF、fwrite/fread 返回值检查、GetBuffer 补 ReleaseBuffer |
-| **v13** | 🛡️ 稳定性加固：CGPUInfo DLL 关键函数 NULL 检查防崩溃（`InitGPU_API`/`Check_GPU_VRAM_Clock`/`CloseGPU_API`）、线程超时后不 CloseHandle 不 ResetFan 防退出竞态 |
-| **v12** | 🐛 5 项关键修复：配置序列化 Bug（offsetof 含 ConfigPath 导致从未保存配置，v2 格式修复）、窗口恢复（m_bForceHideWindow=FALSE）、强冷退出重置 ControlMode、XML 声明改 UTF-8、注册表 REG_SZ 含 null+字节数、CPU 使用率显示、菜单句柄泄漏 |
-| **v11** | 🔒 5 项安全加固：退出事件信号替代 Sleep+TerminateThread（防死锁）、单实例互斥、m_bForcedCooling 统一加锁、温度异常最大 2 次重试、ExecuteCmd memset 清零 |
-| **v10** | 🔐 m_config 线程安全：CRITICAL_SECTION 锁护所有跨线程访问，`Work()` 热路径快照隔离，UI 与工作线程零竞争 |
-| **v9** | 🔍 写后验证 + EC 接管检测：读取 EC 实际 duty 对比写入值，偏差 >15% 自动夺回 |
-| **v8** | 🧼 代码净化：`constexpr` 常量替代 `#define`，RAII `DllHandle` 类消除裸 `FreeLibrary`，魔法数字全部具名常量化 |
-| **v7** | 🐛 修复 4 个 Bug：Silent 预设累积退化、GetExePath 边界检查、告警 ID 修正、配置文件版本魔数；3 项风险：午夜回绕保护、RPM 间隙值标记 |
-| **v6** | 🛡️ Clevo EC 防抢夺：独立每秒刷新机制，对抗 EC 看门狗 |
-| **v5** | 💥 崩溃安全加固：三层 BIOS 归还（正常退出 / TerminateThread / 启动恢复） |
-| **v4** | 🔊 平滑风扇过渡：升速 +4%/次、降速 -2%/次 |
-| **v3** | 🔒 并发安全：6 处 static 局部变量改为成员变量 |
-| **v2** | 🔧 14 项崩溃/逻辑修复 |
-| **v1** | 🎉 初始重构：三种控制模式 + Win11 UI |
+## 本次版本改进
 
-## 📄 协议
+- 完成 Unicode 本地化，修复中文界面与通知文字显示异常。
+- 采用更紧凑的 Windows 11 双栏界面，并修复高级设置对话框在小窗口下被裁切的问题。
+- 首次运行默认不接管风扇，要求用户确认读数后再启用控制。
+- 增加 EC 写后验证和接管状态提示，便于判断风扇控制是否实际生效。
+- 对温度通知增加节流，并加固 DLL 加载、线程退出和配置读写等稳定性路径。
 
-MIT License
+## 从源码构建
+
+1. 安装 Visual Studio 2022，并勾选“使用 C++ 的桌面开发”和 MFC 组件。
+2. 打开 `FanControlPro.sln`，选择 `Release | Win32` 配置。
+3. 生成后，在 `Release\FanControlPro.exe` 获取可执行文件。
+4. 按“下载与安装”中的步骤，将运行时 DLL 与驱动一并准备好后测试。
+
+仓库中的 `diagnostics` 包含启动安全、温度通知、接管状态和对话框布局的轻量验证用例；它们不属于最终分发文件。
+
+## 常见问题
+
+### 启动后没有温度或 RPM
+
+先确认运行时 DLL 与 EXE 位于同一目录，并确认底层驱动已经以管理员权限安装。若仍无读数，不要启用接管；该机型可能不兼容。
+
+### 以管理员身份运行是否必须
+
+驱动安装必须使用管理员权限。日常运行是否需要提升权限取决于系统对底层驱动的访问策略；若程序提示访问失败、无法写入 EC 或开机自启创建失败，请使用“以管理员身份运行”。
+
+### 如何确认控制已生效
+
+查看界面的接管状态和 CPU/GPU 目标占空比与 EC 实际占空比。状态显示“接管已生效”且 RPM 随温度或手动目标变化，才表示控制链路正常。
+
+## 许可证
+
+[MIT License](LICENSE)
