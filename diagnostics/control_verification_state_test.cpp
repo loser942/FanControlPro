@@ -30,19 +30,41 @@ int main()
     TakeoverVerificationPolicy targetChangePolicy(15, 3000, 2, 5000, 3);
     targetChangePolicy.RecordWrite(50, 50, 100);
     targetChangePolicy.RecordReadback(50, 50, 200);
-    targetChangePolicy.RecordWrite(70, 70, 300);
-    targetChangePolicy.RecordReadback(50, 50, 400);
     assert(targetChangePolicy.State() == ControlVerification::RequestingTakeover);
+    targetChangePolicy.RecordReadback(50, 50, 300);
+    assert(targetChangePolicy.State() == ControlVerification::Active);
+    targetChangePolicy.RecordWrite(70, 70, 300);
+    assert(targetChangePolicy.State() == ControlVerification::RequestingTakeover);
+    targetChangePolicy.RecordReadback(70, 70, 400);
+    assert(targetChangePolicy.State() == ControlVerification::RequestingTakeover);
+    targetChangePolicy.RecordReadback(70, 70, 500);
+    assert(targetChangePolicy.State() == ControlVerification::Active);
 
     TakeoverVerificationPolicy timeoutPolicy(15, 3000, 2, 5000, 3);
     timeoutPolicy.RecordWrite(50, 50, 100);
+    timeoutPolicy.RecordReadback(50, 50, 200);
+    assert(timeoutPolicy.State() == ControlVerification::RequestingTakeover);
+    timeoutPolicy.RecordReadback(50, 50, 300);
+    assert(timeoutPolicy.State() == ControlVerification::Active);
     timeoutPolicy.RecordReadback(50, 50, 3201);
     assert(timeoutPolicy.State() == ControlVerification::RequestingTakeover);
+    timeoutPolicy.RecordWrite(50, 50, 3300);
+    timeoutPolicy.RecordReadback(50, 50, 3400);
+    assert(timeoutPolicy.State() == ControlVerification::RequestingTakeover);
+    timeoutPolicy.RecordReadback(50, 50, 3500);
+    assert(timeoutPolicy.State() == ControlVerification::Active);
 
     TakeoverVerificationPolicy deviationPolicy(15, 3000, 2, 5000, 3);
     deviationPolicy.RecordWrite(50, 50, 100);
     deviationPolicy.RecordReadback(50, 50, 200);
+    assert(deviationPolicy.State() == ControlVerification::RequestingTakeover);
+    deviationPolicy.RecordReadback(50, 50, 300);
+    assert(deviationPolicy.State() == ControlVerification::Active);
     deviationPolicy.RecordReadback(70, 50, 300);
     assert(deviationPolicy.State() == ControlVerification::RequestingTakeover);
+    deviationPolicy.RecordReadback(50, 50, 400);
+    assert(deviationPolicy.State() == ControlVerification::RequestingTakeover);
+    deviationPolicy.RecordReadback(50, 50, 500);
+    assert(deviationPolicy.State() == ControlVerification::Active);
     return 0;
 }
