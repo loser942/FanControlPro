@@ -481,7 +481,7 @@ BOOL CCore::Init()
         m_ecDllAvailable = FALSE;
         m_driverInitialized = FALSE;
         m_startupState = StartupState::CoreFailed;
-        RecordStartupCheck(0, 0);
+        SetStartupCheckFailure(L"依赖 DLL 无法加载", L"依赖 DLL 无法加载，仅监控模式");
         if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 0, 0);
         return FALSE;
     }
@@ -500,7 +500,17 @@ BOOL CCore::Init()
 
     const BOOL hasRequiredExports = m_pfnInitIo != NULL && m_pfnSetFanDuty != NULL &&
         m_pfnSetFANDutyAuto != NULL && m_pfnGetTempFanDuty != NULL;
-    const BOOL initOk = hasRequiredExports && m_pfnInitIo() == 1;
+    if (!hasRequiredExports)
+    {
+        m_hInstDLL.Close();
+        m_initError = ERROR_PROC_NOT_FOUND;
+        m_driverInitialized = FALSE;
+        m_startupState = StartupState::CoreFailed;
+        SetStartupCheckFailure(L"EC DLL 缺少必要导出接口", L"EC 接口不完整，仅监控模式");
+        if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 0, 0);
+        return FALSE;
+    }
+    const BOOL initOk = m_pfnInitIo() == 1;
     char logLine[160] = {};
     sprintf_s(logLine, "EC exports=%d InitIo=%d LastError=%lu", hasRequiredExports, initOk, GetLastError());
     WriteDiagnosticLog(logLine);
@@ -510,7 +520,7 @@ BOOL CCore::Init()
         m_initError = GetLastError();
         m_driverInitialized = FALSE;
         m_startupState = StartupState::CoreFailed;
-        RecordStartupCheck(0, 0);
+        SetStartupCheckFailure(L"底层驱动初始化失败", L"底层驱动初始化失败，仅监控模式");
         if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 0, 0);
         return FALSE;
     }
@@ -1010,6 +1020,14 @@ void CCore::RecordStartupCheck(int cpuTemperature, int gpuTemperature)
         WriteDiagnosticLog("Startup self-check completed");
         if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 1, 0);
     }
+}
+
+void CCore::SetStartupCheckFailure(PCWSTR fault, PCWSTR message)
+{
+    std::vector<std::wstring> faults{ fault };
+    std::lock_guard<std::mutex> lock(m_startupCheckMutex);
+    m_startupCheckResult = std::make_shared<StartupCheckResult>(
+        std::move(faults), std::vector<std::wstring>{}, 0, false, message);
 }
 
 int CCore::GetTargetDuty(int fanIndex) const

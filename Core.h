@@ -297,4 +297,5 @@ protected:
     BOOL m_ecDllAvailable = FALSE;
     BOOL m_driverInitialized = FALSE;
     void RecordStartupCheck(int cpuTemperature, int gpuTemperature);
+    void SetStartupCheckFailure(PCWSTR fault, PCWSTR message);
 };
