@@ -5,6 +5,7 @@
 #include <memory>
 #include <synchapi.h>
 #include "StartupState.h"
+#include "ControlVerificationState.h"
 #include "TemperatureAlertPolicy.h"
 
 constexpr UINT WM_CORE_INIT_RESULT = WM_APP + 2;
@@ -219,6 +220,10 @@ public:
     std::atomic<StartupState> m_startupState{ StartupState::UiReady };
     std::atomic_bool m_userTakeoverAuthorized{ false };
     std::atomic_bool m_fansTouched{ false };
+    std::atomic_bool m_fanDutyWritten{ false };
+    std::atomic_bool m_readbackMatches{ false };
+    std::atomic<int> m_nTargetDuty[2];
+    std::atomic<int> m_nReadbackDuty[2];
     std::atomic<DWORD> m_initError{ ERROR_SUCCESS };
     
     int m_nSmoothedDuty[2];
@@ -240,6 +245,9 @@ int m_nLastSetDutyEC[2];
      void SignalExit() { if (m_hExitEvent) SetEvent(m_hExitEvent); }
      StartupState GetStartupState() const { return m_startupState.load(); }
      DWORD GetInitError() const { return m_initError.load(); }
+     ControlVerification GetControlVerification() const;
+     int GetTargetDuty(int fanIndex) const;
+     int GetReadbackDuty(int fanIndex) const;
      void SetUserTakeoverAuthorized(BOOL authorized);
 
 public:

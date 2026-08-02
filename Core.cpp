@@ -437,12 +437,16 @@ CCore::CCore()
         m_nSetDutyLevel[i] = 0;
         m_nCurDuty[i] = 0;
         m_nCurRPM[i] = 0;
+        m_nTargetDuty[i] = 0;
+        m_nReadbackDuty[i] = 0;
     }
     
     m_bUpdateRPM = FALSE;
     m_nLastUpdateTime = GetTime(0, -5);
     m_bForcedCooling = FALSE;
     m_bTakeOverStatus = FALSE;
+    m_fanDutyWritten = false;
+    m_readbackMatches = false;
     m_bForcedRefresh = FALSE;
     m_nNextCheckTime = 0;
     m_bSetPriority = FALSE;
@@ -646,6 +650,7 @@ void CCore::Update()
     for (int i = 0; i < 2; i++)
     {
         data = m_pfnGetTempFanDuty(i + 1);
+        this->m_nReadbackDuty[i] = int(data.FanDuty * 100 / double(EC_FAN_DUTY_MAX) + 0.5);
         const int sampledTemp = static_cast<int>(data.Remote);
         const int previousTemp = m_nCurTemp[i].load();
 // 温度异常检测（最多重试 2 次，3 次异常则保留旧温度）
@@ -684,6 +689,12 @@ void CCore::Update()
         }
         TempErr = 0;
     }
+
+    const bool wrote = m_fanDutyWritten.load();
+    const bool readbackMatches = wrote &&
+        abs(m_nTargetDuty[0].load() - m_nReadbackDuty[0].load()) <= EC_TAKEOVER_THRESHOLD &&
+        abs(m_nTargetDuty[1].load() - m_nReadbackDuty[1].load()) <= EC_TAKEOVER_THRESHOLD;
+    m_readbackMatches = readbackMatches;
     
     if (m_bUpdateRPM.load())
         m_GpuInfo.Update();
@@ -823,8 +834,12 @@ void CCore::ResetFan()
         for (int i = 0; i < fanCount; i++)
             m_pfnSetFANDutyAuto(i + 1);
         m_bTakeOverStatus = FALSE;
+        m_fanDutyWritten = false;
+        m_readbackMatches = false;
         m_nLastSetDutyEC[0] = 0;
         m_nLastSetDutyEC[1] = 0;
+        m_nTargetDuty[0] = 0;
+        m_nTargetDuty[1] = 0;
         
         m_nSmoothedDuty[0] = 0;
         m_nSmoothedDuty[1] = 0;
@@ -833,7 +848,8 @@ void CCore::ResetFan()
 
 void CCore::VerifyAndReclaim()
 {
-    if (!m_bTakeOverStatus || m_pfnGetTempFanDuty == NULL || m_pfnSetFanDuty == NULL)
+    if (!m_bTakeOverStatus || m_pfnGetTempFanDuty == NULL || m_pfnSetFanDuty == NULL ||
+        !CanWriteFans(m_startupState.load(), m_userTakeoverAuthorized.load()))
         return;
 
     m_bEcTakeoverFlag = FALSE;
@@ -890,16 +906,44 @@ void CCore::SetFanDuty()
         }
         
         m_pfnSetFanDuty(i + 1, duty);
-        if (i < 2) m_nLastSetDutyEC[i] = duty;
+        if (i < 2)
+        {
+            m_nLastSetDutyEC[i] = duty;
+            m_nTargetDuty[i] = m_nSmoothedDuty[i];
+        }
     }
     m_bTakeOverStatus = TRUE;
+    m_fanDutyWritten = true;
     m_fansTouched = true;
+}
+
+ControlVerification CCore::GetControlVerification() const
+{
+    return EvaluateControlVerification(
+        m_startupState.load(),
+        m_userTakeoverAuthorized.load(),
+        m_fanDutyWritten.load(),
+        m_readbackMatches.load());
+}
+
+int CCore::GetTargetDuty(int fanIndex) const
+{
+    return fanIndex >= 0 && fanIndex < 2 ? m_nTargetDuty[fanIndex].load() : 0;
+}
+
+int CCore::GetReadbackDuty(int fanIndex) const
+{
+    return fanIndex >= 0 && fanIndex < 2 ? m_nReadbackDuty[fanIndex].load() : 0;
 }
 
 void CCore::SetUserTakeoverAuthorized(BOOL authorized)
 {
     if (!authorized && m_userTakeoverAuthorized.exchange(false))
+    {
+        m_fanDutyWritten = false;
+        m_readbackMatches = false;
         ResetFan();
+    }
     else if (authorized)
         m_userTakeoverAuthorized = true;
 }
