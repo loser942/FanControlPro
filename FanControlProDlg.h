@@ -54,6 +54,7 @@
 #define IDC_STATIC_CPU_FAN_LABEL 1049
 #define IDC_STATIC_GPU_FAN_LABEL 1050
 #define IDC_BUTTON_EXPORT_DIAGNOSTICS 1051
+#define IDC_CHECK_AUTO_TAKEOVER 1052
 
 // 托盘菜单 ID
 #define IDR_SHOW    11
@@ -99,6 +100,7 @@ HICON m_hIcon;
     CEdit m_ctlTransition;
     CEdit m_ctlForceTemp;
     CButton m_ctlAutorun;
+    CButton m_ctlAutoTakeover;
     CEdit m_ctlFrequency;
     CButton m_ctlLockGpu;
     CComboBox m_ctlMode;
@@ -154,11 +156,13 @@ public:
     afx_msg void OnBnClickedCheckForce();
     afx_msg void OnBnClickedCheckLinear();
     afx_msg void OnBnClickedCheckAutorun();
+    afx_msg void OnBnClickedCheckAutoTakeover();
     afx_msg void OnBnClickedCheckLockGpu();
     afx_msg void OnBnClickedSilent();
     afx_msg void OnBnClickedPerformance();
     afx_msg void OnCbnSelchangeComboMode();
     afx_msg void OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBar);
+    afx_msg UINT OnPowerBroadcast(UINT nPowerEvent, LPARAM nEventData);
     
     // 辅助函数
     void UpdateGui(BOOL bFull);

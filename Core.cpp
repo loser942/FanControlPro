@@ -258,6 +258,7 @@ void CConfig::LoadDefault()
     Linear = FALSE;
     // 首次启动保持 BIOS 控制，用户确认传感器读数正常后再显式启用接管。
     TakeOver = FALSE;
+    AutoTakeoverAfterCheck = FALSE;
     // 55°C 会让 13500H/4060 在日常使用中几乎一直处于全速；设为安全而实用的默认值。
     ForceTemp = 85;
     MaxDutyLimit = MAX_FAN_DUTY_LIMIT;
@@ -300,6 +301,7 @@ void CConfig::Normalize()
     NotificationCooldownMinutes = max(1, min(60, NotificationCooldownMinutes));
     Linear = !!Linear;
     TakeOver = !!TakeOver;
+    AutoTakeoverAfterCheck = !!AutoTakeoverAfterCheck;
     LockGPUFrequency = !!LockGPUFrequency;
     GPUFrequency = max(0, GPUFrequency);
     for (int fan = 0; fan < MAX_EC_FANS; ++fan)
@@ -312,14 +314,15 @@ void CConfig::Normalize()
 
 namespace
 {
-ConfigV4Disk ToDiskConfig(const CConfig& config)
+ConfigV5Disk ToDiskConfig(const CConfig& config)
 {
-    ConfigV4Disk disk{};
+    ConfigV5Disk disk{};
     std::memcpy(disk.DutyList, config.DutyList, sizeof(disk.DutyList));
     disk.TransitionTemp = config.TransitionTemp;
     disk.UpdateInterval = config.UpdateInterval;
     disk.Linear = config.Linear;
     disk.TakeOver = config.TakeOver;
+    disk.AutoTakeoverAfterCheck = config.AutoTakeoverAfterCheck;
     disk.ForceTemp = config.ForceTemp;
     disk.MaxDutyLimit = config.MaxDutyLimit;
     disk.LockGPUFrequency = config.LockGPUFrequency;
@@ -332,13 +335,14 @@ ConfigV4Disk ToDiskConfig(const CConfig& config)
     return disk;
 }
 
-void ApplyDiskConfig(CConfig& config, const ConfigV4Disk& disk)
+void ApplyDiskConfig(CConfig& config, const ConfigV5Disk& disk)
 {
     std::memcpy(config.DutyList, disk.DutyList, sizeof(config.DutyList));
     config.TransitionTemp = disk.TransitionTemp;
     config.UpdateInterval = disk.UpdateInterval;
     config.Linear = disk.Linear;
     config.TakeOver = disk.TakeOver;
+    config.AutoTakeoverAfterCheck = disk.AutoTakeoverAfterCheck;
     config.ForceTemp = disk.ForceTemp;
     config.MaxDutyLimit = disk.MaxDutyLimit;
     config.LockGPUFrequency = disk.LockGPUFrequency;
@@ -354,7 +358,7 @@ void ApplyDiskConfig(CConfig& config, const ConfigV4Disk& disk)
 
 void CConfig::LoadConfig()
 {
-    ConfigV4Disk disk{};
+    ConfigV5Disk disk{};
     if (!ReadConfigWithBackup(ConfigPath, &disk, sizeof(disk)))
     {
         LoadDefault();
@@ -366,21 +370,21 @@ void CConfig::LoadConfig()
 
 void CConfig::SaveConfig()
 {
-    const ConfigV4Disk disk = ToDiskConfig(*this);
+    const ConfigV5Disk disk = ToDiskConfig(*this);
     if (!WriteConfigAtomically(ConfigPath, &disk, sizeof(disk)))
         WriteDiagnosticLog("Config write failed");
 }
 
 void CConfig::ExportConfig(PCWSTR path) const
 {
-    const ConfigV4Disk disk = ToDiskConfig(*this);
+    const ConfigV5Disk disk = ToDiskConfig(*this);
     if (!WriteConfigAtomically(path, &disk, sizeof(disk)))
         AfxMessageBox(L"无法打开导出路径");
 }
 
 void CConfig::ImportConfig(PCWSTR path)
 {
-    ConfigV4Disk disk{};
+    ConfigV5Disk disk{};
     if (!ReadConfigWithBackup(path, &disk, sizeof(disk)))
     {
         AfxMessageBox(L"配置文件格式不匹配或版本不兼容，导入失败");
@@ -550,6 +554,7 @@ void CCore::Run()
     m_config.LoadConfig();
     m_config.TakeOver = FALSE;
     m_config.LockGPUFrequency = FALSE;
+    m_powerResumePolicy.BeginRecovery(m_config.AutoTakeoverAfterCheck != FALSE);
     LeaveCriticalSection(&m_csConfig);
     WriteDiagnosticLog("Core config load completed");
     
@@ -563,6 +568,27 @@ void CCore::Run()
         int ecRefreshTick = 0;
         while (!m_nExit)
         {
+            if (m_powerSuspendRequested.exchange(false))
+            {
+                m_ecWritesInhibited = true;
+                m_bForcedCooling = FALSE;
+                m_controlVerification = ControlVerification::BiosControl;
+                WriteDiagnosticLog("Power suspend received; EC writes inhibited");
+            }
+            if (m_powerResumeRequested.exchange(false))
+            {
+                BOOL autoTakeoverEnabled = FALSE;
+                EnterCriticalSection(&m_csConfig);
+                autoTakeoverEnabled = m_config.AutoTakeoverAfterCheck;
+                LeaveCriticalSection(&m_csConfig);
+                BeginStartupSelfCheck(autoTakeoverEnabled, "Power resume self-check started");
+                m_resumeSelfCheckNotBeforeTick = GetTickCount64() + 3000;
+                m_ecWritesInhibited = false;
+            }
+            if (m_manualTakeoverRetryRequested.exchange(false))
+            {
+                BeginStartupSelfCheck(FALSE, "Manual takeover re-check started");
+            }
             if (m_takeoverSessionResetRequested.exchange(false))
             {
                 m_takeoverVerification.Reset();
@@ -590,7 +616,8 @@ void CCore::Run()
                     SetFanDuty();
             }
             
-            if (now >= nextCheckTick || m_bForcedRefresh.exchange(FALSE))
+            if (now >= m_resumeSelfCheckNotBeforeTick &&
+                (now >= nextCheckTick || m_bForcedRefresh.exchange(FALSE)))
             {
                 Work();
                 m_nLastUpdateTime = static_cast<int>(now / 1000);
@@ -867,6 +894,9 @@ void CCore::CalcManualDuty(const CConfig& cfg)
 
 void CCore::ResetFan()
 {
+    if (m_ecWritesInhibited.load() || !m_powerResumePolicy.CanWriteFans())
+        return;
+
     if (m_fansTouched.exchange(false) && m_pfnSetFANDutyAuto != NULL)
     {
         int fanCount = 2;
@@ -889,6 +919,7 @@ void CCore::VerifyAndReclaim()
 {
     if (!m_bTakeOverStatus || m_takeoverVerification.IsFaulted() ||
         m_pfnGetTempFanDuty == NULL || m_pfnSetFanDuty == NULL ||
+        m_ecWritesInhibited.load() || !m_powerResumePolicy.CanWriteFans() ||
         !CanWriteFans(m_startupState.load(), m_userTakeoverAuthorized.load()))
         return;
 
@@ -936,6 +967,7 @@ void CCore::VerifyAndReclaim()
 void CCore::SetFanDuty()
 {
     if (m_sensorHealth.IsFaulted() || m_takeoverVerification.IsFaulted() || m_pfnSetFanDuty == NULL ||
+        m_ecWritesInhibited.load() || !m_powerResumePolicy.CanWriteFans() ||
         !CanWriteFans(m_startupState.load(), m_userTakeoverAuthorized.load()))
         return;
 
@@ -980,8 +1012,10 @@ void CCore::SetFanDuty()
 
 ControlVerification CCore::GetControlVerification() const
 {
-    if (m_startupState.load() != StartupState::CoreReady)
+    if (m_startupState.load() == StartupState::CoreFailed)
         return ControlVerification::Fault;
+    if (m_startupState.load() != StartupState::CoreReady)
+        return ControlVerification::BiosControl;
     if (!m_userTakeoverAuthorized.load())
         return ControlVerification::BiosControl;
     return m_controlVerification.load();
@@ -1016,8 +1050,27 @@ void CCore::RecordStartupCheck(int cpuTemperature, int gpuTemperature)
     }
     if (takeoverAllowed && m_startupState.load() == StartupState::SelfChecking)
     {
+        m_powerResumePolicy.CompleteSelfCheck(true);
         m_startupState = StartupState::CoreReady;
         WriteDiagnosticLog("Startup self-check completed");
+        if (m_powerResumePolicy.ConsumeAutoTakeoverRequest())
+        {
+            m_userTakeoverAuthorized = true;
+            m_controlVerification = ControlVerification::RequestingTakeover;
+            EnterCriticalSection(&m_csConfig);
+            m_config.TakeOver = TRUE;
+            LeaveCriticalSection(&m_csConfig);
+            WriteDiagnosticLog("Automatic takeover requested after self-check");
+        }
+        else if (m_manualTakeoverPending.exchange(false))
+        {
+            m_userTakeoverAuthorized = true;
+            m_controlVerification = ControlVerification::RequestingTakeover;
+            EnterCriticalSection(&m_csConfig);
+            m_config.TakeOver = TRUE;
+            LeaveCriticalSection(&m_csConfig);
+            WriteDiagnosticLog("Manual takeover requested after self-check");
+        }
         if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 1, 0);
     }
 }
@@ -1045,16 +1098,64 @@ void CCore::SetUserTakeoverAuthorized(BOOL authorized)
     if (!authorized)
     {
         m_userTakeoverAuthorized = false;
+        m_manualTakeoverPending = false;
+        m_manualTakeoverRetryRequested = false;
         m_controlVerification = ControlVerification::BiosControl;
         m_takeoverSessionResetRequested = true;
         m_resetFansRequested = true;
     }
     else
     {
-        m_userTakeoverAuthorized = true;
-        m_controlVerification = ControlVerification::RequestingTakeover;
-        m_takeoverSessionResetRequested = true;
+        m_userTakeoverAuthorized = false;
+        m_manualTakeoverPending = true;
+        m_manualTakeoverRetryRequested = true;
+        SignalExit();
     }
+}
+
+void CCore::NotifyPowerSuspend()
+{
+    m_ecWritesInhibited = true;
+    m_powerSuspendRequested = true;
+    SignalExit();
+}
+
+void CCore::NotifyPowerResume()
+{
+    m_powerResumeRequested = true;
+    SignalExit();
+}
+
+void CCore::BeginStartupSelfCheck(BOOL autoTakeoverEnabled, PCSTR logMessage)
+{
+    m_sensorHealth.Reset();
+    m_takeoverVerification.Reset();
+    m_startupSelfCheck.Reset();
+    m_powerResumePolicy.BeginRecovery(autoTakeoverEnabled != FALSE);
+    m_userTakeoverAuthorized = false;
+    m_controlVerification = ControlVerification::BiosControl;
+    m_bTakeOverStatus = FALSE;
+    m_bForcedCooling = FALSE;
+    m_bThermalEmergency = FALSE;
+    m_nLastSetDutyEC[0] = 0;
+    m_nLastSetDutyEC[1] = 0;
+    m_nTargetDuty[0] = 0;
+    m_nTargetDuty[1] = 0;
+    m_nReadbackDuty[0] = 0;
+    m_nReadbackDuty[1] = 0;
+    m_nSmoothedDuty[0] = 0;
+    m_nSmoothedDuty[1] = 0;
+    m_fansTouched = false;
+    EnterCriticalSection(&m_csConfig);
+    m_config.TakeOver = FALSE;
+    LeaveCriticalSection(&m_csConfig);
+    m_startupState = StartupState::SelfChecking;
+    {
+        std::lock_guard<std::mutex> lock(m_startupCheckMutex);
+        m_startupCheckResult = std::make_shared<StartupCheckResult>();
+    }
+    WriteDiagnosticLog(logMessage);
+    if (m_hWnd) PostMessage(m_hWnd, WM_CORE_INIT_RESULT, 2, 0);
 }
 
 void CCore::EnableForcedCooling(BOOL enable)

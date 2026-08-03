@@ -32,6 +32,12 @@ struct StartupCheckResult final
 class StartupSelfCheckPolicy
 {
 public:
+    void Reset()
+    {
+        locked_ = false;
+        consecutiveValidTemperatureSamples_ = 0;
+    }
+
     StartupCheckResult Evaluate(bool coreInitialized, int cpuTemperature, int gpuTemperature,
         int cpuRpm, int gpuRpm, bool gpuAvailable)
     {

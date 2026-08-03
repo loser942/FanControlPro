@@ -20,6 +20,11 @@ int main()
     assert(thirdResult.takeoverAllowed);
     assert(thirdResult.blockingFaults.empty());
 
+    policy.Reset();
+    const StartupCheckResult resetResult = policy.Evaluate(true, 48, 55, 1800, 1600, true);
+    assert(resetResult.consecutiveValidTemperatureSamples == 1);
+    assert(!resetResult.takeoverAllowed);
+
     StartupSelfCheckPolicy invalidTemperaturePolicy;
     const StartupCheckResult invalidTemperatureResult = invalidTemperaturePolicy.Evaluate(true, 0, 54, 1800, 1600, true);
     assert(!invalidTemperatureResult.takeoverAllowed);

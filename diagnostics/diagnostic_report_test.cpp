@@ -36,16 +36,20 @@ int main()
         input.logLines.push_back(L"日志[" + marker + L"] C:\\Users\\alice\\FanControlPro.debug.log");
     }
     input.logLines.push_back(L"额外日志 C:\\Users\\Alice Example\\secret.txt");
+    input.logLines.push_back(L"Power resume self-check started");
+    input.logLines.push_back(L"Automatic takeover requested after self-check");
 
     const std::string report = BuildDiagnosticReportUtf8(input);
     assert(report.find("FanControl Pro v8") != std::string::npos);
     assert(report.find("Windows 11 23H2") != std::string::npos);
     assert(report.find("\xE5\x90\xAF\xE5\x8A\xA8\xE8\x87\xAA\xE6\xA3\x80") != std::string::npos);
-    assert(report.find("日志[004]") == std::string::npos);
-    assert(report.find("日志[006]") != std::string::npos);
+    assert(report.find("\xE6\x97\xA5\xE5\xBF\x97[004]") == std::string::npos);
+    assert(report.find("\xE6\x97\xA5\xE5\xBF\x97[008]") != std::string::npos);
     assert(report.find("C:\\Users\\alice") == std::string::npos);
     assert(report.find("Alice Example") == std::string::npos);
     assert(report.find("secret.txt") == std::string::npos);
-    assert(report.find("<已隐藏路径>") != std::string::npos);
+    assert(report.find("<\xE5\xB7\xB2\xE9\x9A\x90\xE8\x97\x8F\xE8\xB7\xAF\xE5\xBE\x84>") != std::string::npos);
+    assert(report.find("Power resume self-check started") != std::string::npos);
+    assert(report.find("Automatic takeover requested after self-check") != std::string::npos);
     return 0;
 }

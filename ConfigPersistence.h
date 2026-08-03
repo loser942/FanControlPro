@@ -13,6 +13,7 @@
 constexpr DWORD CONFIG_FILE_MAGIC = 0x46504346;
 constexpr DWORD CONFIG_FILE_VERSION_V3 = 3;
 constexpr DWORD CONFIG_FILE_VERSION_V4 = 4;
+constexpr DWORD CONFIG_FILE_VERSION_V5 = 5;
 constexpr size_t CONFIG_FAN_COUNT = 2;
 constexpr size_t CONFIG_TEMP_LEVEL_COUNT = 10;
 
@@ -32,6 +33,25 @@ struct ConfigV4Disk
     int WarningTemp;
     BOOL DesktopNotifications;
     int NotificationCooldownMinutes;
+};
+
+struct ConfigV5Disk
+{
+    int DutyList[CONFIG_FAN_COUNT][CONFIG_TEMP_LEVEL_COUNT];
+    int TransitionTemp;
+    int UpdateInterval;
+    BOOL Linear;
+    BOOL TakeOver;
+    int ForceTemp;
+    int MaxDutyLimit;
+    BOOL LockGPUFrequency;
+    int GPUFrequency;
+    int ControlMode;
+    int ManualDuty[CONFIG_FAN_COUNT];
+    int WarningTemp;
+    BOOL DesktopNotifications;
+    int NotificationCooldownMinutes;
+    BOOL AutoTakeoverAfterCheck;
 };
 
 struct ConfigV4FileHeader
@@ -122,6 +142,30 @@ inline void Normalize(ConfigV4Disk& config)
     }
 }
 
+inline void Normalize(ConfigV5Disk& config)
+{
+    config.TransitionTemp = std::clamp(config.TransitionTemp, 0, 10);
+    config.UpdateInterval = std::clamp(config.UpdateInterval, 1, 5);
+    config.ForceTemp = std::clamp(config.ForceTemp, 60, 95);
+    config.MaxDutyLimit = std::clamp(config.MaxDutyLimit, 0, 100);
+    config.ControlMode = std::clamp(config.ControlMode, 0, 2);
+    config.WarningTemp = std::clamp(config.WarningTemp, 60, 100);
+    config.NotificationCooldownMinutes = std::clamp(config.NotificationCooldownMinutes, 1, 60);
+    config.Linear = !!config.Linear;
+    config.TakeOver = !!config.TakeOver;
+    config.LockGPUFrequency = !!config.LockGPUFrequency;
+    config.DesktopNotifications = !!config.DesktopNotifications;
+    config.AutoTakeoverAfterCheck = !!config.AutoTakeoverAfterCheck;
+    config.GPUFrequency = config.GPUFrequency < 0 ? 0 : config.GPUFrequency;
+
+    for (size_t fan = 0; fan < CONFIG_FAN_COUNT; ++fan)
+    {
+        config.ManualDuty[fan] = std::clamp(config.ManualDuty[fan], 0, 100);
+        for (size_t level = 0; level < CONFIG_TEMP_LEVEL_COUNT; ++level)
+            config.DutyList[fan][level] = std::clamp(config.DutyList[fan][level], 0, 100);
+    }
+}
+
 inline void MigrateV3(const ConfigV3Disk& source, ConfigV4Disk& destination)
 {
     std::memcpy(destination.DutyList, source.DutyList, sizeof(destination.DutyList));
@@ -138,6 +182,26 @@ inline void MigrateV3(const ConfigV3Disk& source, ConfigV4Disk& destination)
     destination.WarningTemp = source.WarningTemp;
     destination.DesktopNotifications = source.DesktopNotifications;
     destination.NotificationCooldownMinutes = source.NotificationCooldownMinutes;
+    Normalize(destination);
+}
+
+inline void MigrateV4(const ConfigV4Disk& source, ConfigV5Disk& destination)
+{
+    std::memcpy(destination.DutyList, source.DutyList, sizeof(destination.DutyList));
+    destination.TransitionTemp = source.TransitionTemp;
+    destination.UpdateInterval = source.UpdateInterval;
+    destination.Linear = source.Linear;
+    destination.TakeOver = source.TakeOver;
+    destination.ForceTemp = source.ForceTemp;
+    destination.MaxDutyLimit = source.MaxDutyLimit;
+    destination.LockGPUFrequency = source.LockGPUFrequency;
+    destination.GPUFrequency = source.GPUFrequency;
+    destination.ControlMode = source.ControlMode;
+    std::memcpy(destination.ManualDuty, source.ManualDuty, sizeof(destination.ManualDuty));
+    destination.WarningTemp = source.WarningTemp;
+    destination.DesktopNotifications = source.DesktopNotifications;
+    destination.NotificationCooldownMinutes = source.NotificationCooldownMinutes;
+    destination.AutoTakeoverAfterCheck = FALSE;
     Normalize(destination);
 }
 
@@ -160,7 +224,7 @@ inline bool ReadConfigFile(PCWSTR path, void* bytes, size_t byteCount)
     }
 
     bool read = false;
-    if (prefix[1] == CONFIG_FILE_VERSION_V4)
+    if (prefix[1] == CONFIG_FILE_VERSION_V5)
     {
         DWORD payloadSize = 0;
         const ULONGLONG expectedSize = static_cast<ULONGLONG>(sizeof(ConfigV4FileHeader)) + byteCount;
@@ -169,9 +233,9 @@ inline bool ReadConfigFile(PCWSTR path, void* bytes, size_t byteCount)
         {
             std::vector<BYTE> payload(byteCount);
             read = ReadExact(file, payload.data(), byteCount);
-            if (read && byteCount == sizeof(ConfigV4Disk))
+            if (read && byteCount == sizeof(ConfigV5Disk))
             {
-                ConfigV4Disk config{};
+                ConfigV5Disk config{};
                 std::memcpy(&config, payload.data(), sizeof(config));
                 Normalize(config);
                 std::memcpy(bytes, &config, sizeof(config));
@@ -182,7 +246,24 @@ inline bool ReadConfigFile(PCWSTR path, void* bytes, size_t byteCount)
             }
         }
     }
-    else if (prefix[1] == CONFIG_FILE_VERSION_V3 && byteCount == sizeof(ConfigV4Disk))
+    else if (prefix[1] == CONFIG_FILE_VERSION_V4 && byteCount == sizeof(ConfigV5Disk))
+    {
+        const ULONGLONG expectedSize = static_cast<ULONGLONG>(sizeof(ConfigV4FileHeader)) + sizeof(ConfigV4Disk);
+        DWORD payloadSize = 0;
+        if (fileSize.QuadPart == static_cast<LONGLONG>(expectedSize) &&
+            ReadExact(file, &payloadSize, sizeof(payloadSize)) && payloadSize == sizeof(ConfigV4Disk))
+        {
+            ConfigV4Disk legacy{};
+            read = ReadExact(file, &legacy, sizeof(legacy));
+            if (read)
+            {
+                ConfigV5Disk migrated{};
+                MigrateV4(legacy, migrated);
+                std::memcpy(bytes, &migrated, sizeof(migrated));
+            }
+        }
+    }
+    else if (prefix[1] == CONFIG_FILE_VERSION_V3 && byteCount == sizeof(ConfigV5Disk))
     {
         const ULONGLONG expectedSize = static_cast<ULONGLONG>(sizeof(prefix)) + sizeof(ConfigV3Disk);
         if (fileSize.QuadPart == static_cast<LONGLONG>(expectedSize))
@@ -193,7 +274,9 @@ inline bool ReadConfigFile(PCWSTR path, void* bytes, size_t byteCount)
             {
                 ConfigV4Disk migrated{};
                 MigrateV3(legacy, migrated);
-                std::memcpy(bytes, &migrated, sizeof(migrated));
+                ConfigV5Disk upgraded{};
+                MigrateV4(migrated, upgraded);
+                std::memcpy(bytes, &upgraded, sizeof(upgraded));
             }
         }
     }
@@ -214,7 +297,7 @@ inline bool WriteConfigAtomically(PCWSTR path, const void* bytes, size_t byteCou
     const std::wstring configPath(path);
     const std::wstring temporaryPath = configPath + L".tmp";
     const std::wstring backupPath = configPath + L".bak";
-    const ConfigV4FileHeader header{ CONFIG_FILE_MAGIC, CONFIG_FILE_VERSION_V4,
+    const ConfigV4FileHeader header{ CONFIG_FILE_MAGIC, CONFIG_FILE_VERSION_V5,
         static_cast<DWORD>(byteCount) };
 
     HANDLE temporaryFile = CreateFileW(temporaryPath.c_str(), GENERIC_WRITE, 0, nullptr,

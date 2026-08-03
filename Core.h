@@ -12,6 +12,7 @@
 #include "SensorHealthPolicy.h"
 #include "TemperatureAlertPolicy.h"
 #include "StartupSelfCheckPolicy.h"
+#include "PowerResumePolicy.h"
 
 constexpr UINT WM_CORE_INIT_RESULT = WM_APP + 2;
 
@@ -161,6 +162,7 @@ public:
     int UpdateInterval;
     BOOL Linear;
     BOOL TakeOver;
+    BOOL AutoTakeoverAfterCheck;
     int ForceTemp;
     int MaxDutyLimit;
     
@@ -227,6 +229,12 @@ public:
     std::atomic_bool m_fansTouched{ false };
     std::atomic_bool m_takeoverSessionResetRequested{ false };
     std::atomic_bool m_resetFansRequested{ false };
+    std::atomic_bool m_powerSuspendRequested{ false };
+    std::atomic_bool m_powerResumeRequested{ false };
+    std::atomic_bool m_manualTakeoverRetryRequested{ false };
+    std::atomic_bool m_manualTakeoverPending{ false };
+    std::atomic_bool m_ecWritesInhibited{ false };
+    ULONGLONG m_resumeSelfCheckNotBeforeTick = 0;
     std::atomic<ControlVerification> m_controlVerification{ ControlVerification::BiosControl };
     std::atomic<int> m_nTargetDuty[2];
     std::atomic<int> m_nReadbackDuty[2];
@@ -238,6 +246,7 @@ public:
     BOOL m_bThermalEmergency;
     TakeoverVerificationPolicy m_takeoverVerification{ EC_TAKEOVER_THRESHOLD, 3000, 2, 5000, 3 };
     SensorHealthPolicy m_sensorHealth;
+    PowerResumePolicy m_powerResumePolicy;
     TemperatureAlertPolicy m_temperatureAlertPolicy;
     HWND m_hWnd;
 
@@ -261,6 +270,8 @@ int m_nLastSetDutyEC[2];
      int GetTargetDuty(int fanIndex) const;
      int GetReadbackDuty(int fanIndex) const;
     void SetUserTakeoverAuthorized(BOOL authorized);
+    void NotifyPowerSuspend();
+    void NotifyPowerResume();
     void SaveConfigSnapshot();
 
 public:
@@ -298,4 +309,5 @@ protected:
     BOOL m_driverInitialized = FALSE;
     void RecordStartupCheck(int cpuTemperature, int gpuTemperature);
     void SetStartupCheckFailure(PCWSTR fault, PCWSTR message);
+    void BeginStartupSelfCheck(BOOL autoTakeoverEnabled, PCSTR logMessage);
 };

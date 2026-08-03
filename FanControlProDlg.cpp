@@ -103,6 +103,7 @@ void CFanControlProDlg::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_EDIT_TRANSITION, m_ctlTransition);
     DDX_Control(pDX, IDC_EDIT_FORCE_TEMP, m_ctlForceTemp);
     DDX_Control(pDX, IDC_CHECK_AUTORUN, m_ctlAutorun);
+    DDX_Control(pDX, IDC_CHECK_AUTO_TAKEOVER, m_ctlAutoTakeover);
     DDX_Control(pDX, IDC_EDIT_GPU_FREQUENCY, m_ctlFrequency);
     DDX_Control(pDX, IDC_CHECK_LOCK_GPU, m_ctlLockGpu);
     DDX_Control(pDX, IDC_COMBO_MODE, m_ctlMode);
@@ -148,6 +149,7 @@ BEGIN_MESSAGE_MAP(CFanControlProDlg, CDialogEx)
     ON_BN_CLICKED(IDC_CHECK_FORCE, &CFanControlProDlg::OnBnClickedCheckForce)
     ON_BN_CLICKED(IDC_CHECK_LINEAR, &CFanControlProDlg::OnBnClickedCheckLinear)
     ON_BN_CLICKED(IDC_CHECK_AUTORUN, &CFanControlProDlg::OnBnClickedCheckAutorun)
+    ON_BN_CLICKED(IDC_CHECK_AUTO_TAKEOVER, &CFanControlProDlg::OnBnClickedCheckAutoTakeover)
     ON_BN_CLICKED(IDC_CHECK_LOCK_GPU, &CFanControlProDlg::OnBnClickedCheckLockGpu)
     ON_BN_CLICKED(IDC_CHECK_SILENT, &CFanControlProDlg::OnBnClickedSilent)
     ON_BN_CLICKED(IDC_CHECK_PERFORMANCE, &CFanControlProDlg::OnBnClickedPerformance)
@@ -155,6 +157,7 @@ BEGIN_MESSAGE_MAP(CFanControlProDlg, CDialogEx)
     ON_MESSAGE(WM_SHOWTASK, &CFanControlProDlg::OnShowTask)
     ON_MESSAGE(WM_DEFERRED_STARTUP, &CFanControlProDlg::OnDeferredStartup)
     ON_MESSAGE(WM_CORE_INIT_RESULT, &CFanControlProDlg::OnCoreInitResult)
+    ON_WM_POWERBROADCAST()
 END_MESSAGE_MAP()
 
 BOOL CFanControlProDlg::OnInitDialog()
@@ -280,7 +283,10 @@ void CFanControlProDlg::SetStartupStatus(PCWSTR status)
 
 void CFanControlProDlg::SetTakeoverControlsEnabled(BOOL enabled)
 {
-    m_ctlTakeOver.EnableWindow(enabled);
+    const StartupCheckResult startupCheck = m_core.GetStartupCheckResult();
+    const BOOL canRequestRetry = m_core.GetStartupState() == StartupState::SelfChecking &&
+        !startupCheck.blockingFaults.empty();
+    m_ctlTakeOver.EnableWindow(enabled || canRequestRetry);
     m_ctlForcedCooling.EnableWindow(enabled);
     m_ctlMode.EnableWindow(enabled);
     m_ctlCpuFanSlider.EnableWindow(enabled);
@@ -438,6 +444,26 @@ CloseHandle(m_hCoreThread);
     }
 }
 
+UINT CFanControlProDlg::OnPowerBroadcast(UINT nPowerEvent, LPARAM nEventData)
+{
+    UNREFERENCED_PARAMETER(nEventData);
+    switch (nPowerEvent)
+    {
+    case PBT_APMSUSPEND:
+        SetStartupStatus(L"系统即将休眠，已停止风扇写入");
+        m_core.NotifyPowerSuspend();
+        break;
+    case PBT_APMRESUMEAUTOMATIC:
+    case PBT_APMRESUMESUSPEND:
+        SetStartupStatus(L"睡眠恢复后正在重新自检，BIOS 风扇控制保持启用");
+        m_core.NotifyPowerResume();
+        break;
+    default:
+        break;
+    }
+    return TRUE;
+}
+
 void CFanControlProDlg::UpdateGui(BOOL bFull)
 {
     const StartupCheckResult startupCheck = m_core.GetStartupCheckResult();
@@ -508,10 +534,11 @@ void CFanControlProDlg::UpdateGui(BOOL bFull)
         return;
     }
     
-    BOOL bTakeOver, bLinear, bLockGpu;
+    BOOL bTakeOver, bAutoTakeover, bLinear, bLockGpu;
     int nUpdateInterval, nTransitionTemp, nForceTemp, nGpuFreq, nMaxDuty;
     m_core.LockConfig();
     bTakeOver       = m_core.m_config.TakeOver;
+    bAutoTakeover   = m_core.m_config.AutoTakeoverAfterCheck;
     bLinear         = m_core.m_config.Linear;
     bLockGpu        = m_core.m_config.LockGPUFrequency;
     nUpdateInterval = m_core.m_config.UpdateInterval;
@@ -523,6 +550,8 @@ void CFanControlProDlg::UpdateGui(BOOL bFull)
     
     int to = m_ctlTakeOver.GetCheck();
     if (to ^ bTakeOver) m_ctlTakeOver.SetCheck(bTakeOver);
+    const int at = m_ctlAutoTakeover.GetCheck();
+    if (at ^ bAutoTakeover) m_ctlAutoTakeover.SetCheck(bAutoTakeover);
     int lc = m_ctlLinear.GetCheck();
     if (lc ^ bLinear) m_ctlLinear.SetCheck(bLinear);
     int lf = m_ctlLockGpu.GetCheck();
@@ -749,7 +778,10 @@ HMENU hmenu = menu.Detach();
 
 void CFanControlProDlg::OnBnClickedCheckTakeover()
 {
-    if (m_core.GetStartupState() != StartupState::CoreReady)
+    const StartupCheckResult startupCheck = m_core.GetStartupCheckResult();
+    const BOOL canRequestRetry = m_core.GetStartupState() == StartupState::SelfChecking &&
+        !startupCheck.blockingFaults.empty();
+    if (m_core.GetStartupState() != StartupState::CoreReady && !canRequestRetry)
     {
         m_ctlTakeOver.SetCheck(FALSE);
         return;
@@ -835,6 +867,14 @@ void CFanControlProDlg::SetAdvancedMode(BOOL bAdvanced)
     m_bAdvancedMode = bAdvanced;
     if (CWnd* advancedButton = GetDlgItem(IDC_BUTTON_ADVANCED))
         advancedButton->SetWindowTextW(bAdvanced ? L"返回监控" : L"高级设置");
+}
+
+void CFanControlProDlg::OnBnClickedCheckAutoTakeover()
+{
+    m_core.LockConfig();
+    m_core.m_config.AutoTakeoverAfterCheck = m_ctlAutoTakeover.GetCheck();
+    m_core.UnlockConfig();
+    m_core.SaveConfigSnapshot();
 }
 
 void CFanControlProDlg::OnBnClickedButtonAdvanced()

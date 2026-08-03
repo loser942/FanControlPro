@@ -50,7 +50,21 @@ void WriteLegacyV3File(const std::wstring& path, const ConfigV4Disk& config)
     file.write(reinterpret_cast<const char*>(&config), sizeof(config));
 }
 
-void AssertV4Header(const std::wstring& path)
+void WriteLegacyV4File(const std::wstring& path, const ConfigV4Disk& config)
+{
+    struct Header
+    {
+        std::uint32_t magic;
+        std::uint32_t version;
+        std::uint32_t payloadSize;
+    } header{ CONFIG_FILE_MAGIC, CONFIG_FILE_VERSION_V4, sizeof(ConfigV4Disk) };
+
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+    file.write(reinterpret_cast<const char*>(&config), sizeof(config));
+}
+
+void AssertV5Header(const std::wstring& path)
 {
     struct Header
     {
@@ -63,8 +77,8 @@ void AssertV4Header(const std::wstring& path)
     file.read(reinterpret_cast<char*>(&header), sizeof(header));
     assert(file.gcount() == sizeof(header));
     assert(header.magic == CONFIG_FILE_MAGIC);
-    assert(header.version == CONFIG_FILE_VERSION_V4);
-    assert(header.payloadSize == sizeof(ConfigV4Disk));
+    assert(header.version == CONFIG_FILE_VERSION_V5);
+    assert(header.payloadSize == sizeof(ConfigV5Disk));
 }
 }
 
@@ -73,17 +87,17 @@ int main()
     const std::wstring configPath = MakeTestPath();
     RemoveTestFiles(configPath);
 
-    ConfigV4Disk first{};
+    ConfigV5Disk first{};
     first.UpdateInterval = 2;
     assert(WriteConfigAtomically(configPath.c_str(), &first, sizeof(first)));
 
-    ConfigV4Disk second{};
+    ConfigV5Disk second{};
     second.UpdateInterval = 4;
     assert(WriteConfigAtomically(configPath.c_str(), &second, sizeof(second)));
-    AssertV4Header(configPath);
+    AssertV5Header(configPath);
 
     // A successful replacement must preserve the previously valid snapshot.
-    ConfigV4Disk loaded{};
+    ConfigV5Disk loaded{};
     assert(ReadConfigWithBackup(configPath.c_str(), &loaded, sizeof(loaded)));
     assert(loaded.UpdateInterval == 4);
 
@@ -101,6 +115,23 @@ int main()
     assert(ReadConfigWithBackup(configPath.c_str(), &loaded, sizeof(loaded)));
     assert(loaded.UpdateInterval == 5);
     assert(loaded.ManualDuty[0] == 100);
+
+    // The automatic-takeover preference is opt-in and must migrate safely.
+    ConfigV5Disk automatic{};
+    automatic.UpdateInterval = 3;
+    automatic.AutoTakeoverAfterCheck = TRUE;
+    assert(WriteConfigAtomically(configPath.c_str(), &automatic, sizeof(automatic)));
+    ConfigV5Disk automaticLoaded{};
+    assert(ReadConfigWithBackup(configPath.c_str(), &automaticLoaded, sizeof(automaticLoaded)));
+    assert(automaticLoaded.AutoTakeoverAfterCheck == TRUE);
+
+    ConfigV4Disk v4{};
+    v4.UpdateInterval = 4;
+    WriteLegacyV4File(configPath, v4);
+    ConfigV5Disk migratedV4{};
+    assert(ReadConfigWithBackup(configPath.c_str(), &migratedV4, sizeof(migratedV4)));
+    assert(migratedV4.UpdateInterval == 4);
+    assert(migratedV4.AutoTakeoverAfterCheck == FALSE);
 
     RemoveTestFiles(configPath);
     return 0;
